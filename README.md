@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <div align="center">
 
 <img src="https://img.shields.io/badge/ThreatNet-IDS%20v1.0-00d4ff?style=for-the-badge" />
@@ -291,3 +292,6 @@ without explicit written permission is prohibited.
 See [SECURITY.md](SECURITY.md) for full legal terms.
 
 </div>
+=======
+# KOPO
+>>>>>>> ed8604931ea2b47b56e6ae8686bbaaaa1920331e
