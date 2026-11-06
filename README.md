@@ -81,7 +81,7 @@ behavior from real data making it capable of flagging attacks it has never expli
 ┌───────────────────────────────▼─────────────────────────────┐
 │                        API LAYER                            │
 │                                                             │
-│   FastAPI :8000  →  Detection Engine  →  SQLite Database    │
+│   FastAPI :8000  →  Detection Engine  →   Postgre sql       │
 └───────────────────────────────┬─────────────────────────────┘
                                 │
 ┌───────────────────────────────▼─────────────────────────────┐
@@ -281,7 +281,7 @@ Full dependency rationale in [MODELS.md](MODELS.md).
 
 <div align="center">
 
-**Author:** Rehan Khan
+**Author:** 3bkreeeeeeeeeeeem
 
 Built as a 6th semester Machine Learning course project and Cybersecurity Portfolio piece.
 
