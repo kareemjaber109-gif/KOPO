@@ -2,11 +2,38 @@ import numpy as np
 import torch
 import torch.nn as nn
 from pathlib import Path
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset
 from src.utils.config import settings
 from src.utils.logger import logger
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+class FlowSequenceDataset(Dataset):
+    """
+    Memory-efficient sliding window dataset for sequential flow detection.
+    Avoids copying large sequence arrays into RAM.
+    """
+    def __init__(self, X: np.ndarray, y: np.ndarray, seq_len: int = 20, max_samples: int = None):
+        self.seq_len = seq_len
+        total_len = len(X) - seq_len
+        if max_samples and max_samples < total_len:
+            step = max(1, total_len // max_samples)
+            self.indices = np.arange(0, total_len, step)[:max_samples]
+        else:
+            self.indices = np.arange(0, total_len)
+
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        real_idx = self.indices[idx]
+        seq = torch.from_numpy(self.X[real_idx : real_idx + self.seq_len]).float()
+        target = torch.tensor(self.y[real_idx + self.seq_len - 1], dtype=torch.long)
+        return seq, target
 
 
 class LSTMNet(nn.Module):
@@ -41,37 +68,26 @@ class LSTMNet(nn.Module):
 class LSTMModel:
 
     SEQ_LEN    = 20
-    BATCH_SIZE = 256
-    EPOCHS     = 20
+    BATCH_SIZE = 1024
+    EPOCHS     = 6
     LR         = 1e-3
 
     def __init__(self, input_size: int = 69):
         self.input_size = input_size
         self.net        = None
 
-    def _build_sequences(self, X: np.ndarray, y: np.ndarray):
-        seq_X, seq_y = [], []
-        for i in range(len(X) - self.SEQ_LEN):
-            seq_X.append(X[i: i + self.SEQ_LEN])
-            seq_y.append(y[i + self.SEQ_LEN - 1])
-        return np.array(seq_X, dtype=np.float32), np.array(seq_y, dtype=np.int64)
-
-    def train(self, X_train: np.ndarray, y_train: np.ndarray):
-        logger.info(f"Building sequences (seq_len={self.SEQ_LEN})...")
-        seq_X, seq_y = self._build_sequences(X_train, y_train)
-        logger.info(f"Training LSTM on {len(seq_X):,} sequences | device={DEVICE}")
+    def train(self, X_train: np.ndarray, y_train: np.ndarray, max_train_samples: int = 80000):
+        logger.info(f"Building memory-efficient sequence loader (seq_len={self.SEQ_LEN})...")
+        train_dataset = FlowSequenceDataset(
+            X_train, y_train, seq_len=self.SEQ_LEN, max_samples=max_train_samples
+        )
+        loader = DataLoader(train_dataset, batch_size=self.BATCH_SIZE, shuffle=True)
+        logger.info(f"Training Fast Deep LSTM on {len(train_dataset):,} sequences | device={DEVICE}")
 
         self.net = LSTMNet(input_size=self.input_size).to(DEVICE)
-
-        dataset = TensorDataset(
-            torch.tensor(seq_X),
-            torch.tensor(seq_y),
-        )
-        loader = DataLoader(dataset, batch_size=self.BATCH_SIZE, shuffle=True)
-
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.LR)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5)
 
         self.net.train()
         for epoch in range(1, self.EPOCHS + 1):
@@ -91,27 +107,17 @@ class LSTMModel:
                 total      += len(yb)
 
             scheduler.step()
-            acc = correct / total
-            avg = total_loss / total
-
-            if epoch % 5 == 0 or epoch == 1:
-                logger.info(f"  Epoch {epoch:>2}/{self.EPOCHS} | loss={avg:.4f} | acc={acc:.4f}")
+            acc = correct / total if total > 0 else 0
+            avg = total_loss / total if total > 0 else 0
+            logger.info(f"  Epoch {epoch:>2}/{self.EPOCHS} | loss={avg:.4f} | acc={acc * 100:.2f}%")
 
         logger.success("LSTM training complete")
         return self
 
-    def _batch_predict(self, seq_X: np.ndarray) -> np.ndarray:
-        self.net.eval()
-        dataset = TensorDataset(torch.tensor(seq_X, dtype=torch.float32))
-        loader  = DataLoader(dataset, batch_size=self.BATCH_SIZE * 2, shuffle=False)
-        preds   = []
-        with torch.no_grad():
-            for (Xb,) in loader:
-                out = self.net(Xb.to(DEVICE))
-                preds.extend(out.argmax(1).cpu().numpy().tolist())
-        return np.array(preds)
-
     def predict_single(self, features: np.ndarray) -> dict:
+        if self.net is None:
+            return {"is_attack": False, "label": "BENIGN", "confidence": 0.0}
+
         self.net.eval()
         seq = np.tile(features, (self.SEQ_LEN, 1)).reshape(1, self.SEQ_LEN, -1)
         tensor = torch.tensor(seq, dtype=torch.float32).to(DEVICE)
@@ -129,15 +135,38 @@ class LSTMModel:
             "model":        "LSTM",
         }
 
-    def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> dict:
-        from sklearn.metrics import classification_report, f1_score
-        seq_X, seq_y = self._build_sequences(X_test, y_test)
-        y_pred = self._batch_predict(seq_X)
-        f1     = f1_score(seq_y, y_pred, average="binary", zero_division=0)
+    def evaluate(self, X_test: np.ndarray, y_test: np.ndarray, max_eval_samples: int = 25000) -> dict:
+        from sklearn.metrics import classification_report, f1_score, confusion_matrix
+        self.net.eval()
+        eval_dataset = FlowSequenceDataset(
+            X_test, y_test, seq_len=self.SEQ_LEN, max_samples=max_eval_samples
+        )
+        loader = DataLoader(eval_dataset, batch_size=self.BATCH_SIZE * 2, shuffle=False)
+        preds, truths = [], []
+        with torch.no_grad():
+            for Xb, yb in loader:
+                out = self.net(Xb.to(DEVICE))
+                preds.extend(out.argmax(1).cpu().numpy().tolist())
+                truths.extend(yb.numpy().tolist())
+
+        f1 = f1_score(truths, preds, average="binary", zero_division=0)
+        report = classification_report(
+            truths, preds, target_names=["BENIGN", "ATTACK"],
+            zero_division=0, output_dict=True,
+        )
+        cm = confusion_matrix(truths, preds)
+
         logger.info("\n" + classification_report(
-            seq_y, y_pred, target_names=["BENIGN", "ATTACK"]
+            truths, preds, target_names=["BENIGN", "ATTACK"], zero_division=0
         ))
-        return {"f1": float(f1)}
+        logger.info(f"Confusion Matrix:\n{cm}")
+
+        return {
+            "f1": float(f1),
+            "report": report,
+            "confusion_matrix": cm.tolist(),
+            "labels": ["BENIGN", "ATTACK"],
+        }
 
     def save(self, path: Path = None) -> Path:
         if path is None:
@@ -155,7 +184,7 @@ class LSTMModel:
     def load(cls, path: Path = None):
         if path is None:
             path = settings.models_dir / "lstm.pt"
-        ckpt = torch.load(path, map_location=DEVICE)
+        ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
         obj  = cls(input_size=ckpt["input_size"])
         obj.SEQ_LEN = ckpt["seq_len"]
         obj.net     = LSTMNet(input_size=obj.input_size).to(DEVICE)

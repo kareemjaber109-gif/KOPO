@@ -2,7 +2,7 @@ import pickle
 import numpy as np
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, f1_score
+from sklearn.metrics import classification_report, f1_score, confusion_matrix
 from src.utils.config import settings
 from src.utils.logger import logger
 
@@ -12,9 +12,9 @@ class RFModel:
     def __init__(self):
         self.model = RandomForestClassifier(
             n_estimators=200,
-            max_depth=None,
+            max_depth=22,
             min_samples_split=10,
-            min_samples_leaf=5,
+            min_samples_leaf=4,
             max_features="sqrt",
             class_weight="balanced",
             n_jobs=-1,
@@ -23,7 +23,7 @@ class RFModel:
         self.feature_importances_ = None
 
     def train(self, X_train: np.ndarray, y_train: np.ndarray):
-        logger.info(f"Training Random Forest on {len(X_train):,} samples...")
+        logger.info(f"Training Optimized Random Forest (200 trees, depth=22) on {len(X_train):,} samples...")
         self.model.fit(X_train, y_train)
         self.feature_importances_ = self.model.feature_importances_
         logger.success("Random Forest training complete")
@@ -55,10 +55,19 @@ class RFModel:
             target_names=["BENIGN", "ATTACK"],
             output_dict=True,
         )
+        cm = confusion_matrix(y_test, y_pred)
+
         logger.info("\n" + classification_report(
             y_test, y_pred, target_names=["BENIGN", "ATTACK"]
         ))
-        return {"f1": float(f1), "report": report}
+        logger.info(f"Confusion Matrix:\n{cm}")
+
+        return {
+            "f1": float(f1),
+            "report": report,
+            "confusion_matrix": cm.tolist(),
+            "labels": ["BENIGN", "ATTACK"],
+        }
 
     def top_features(self, feature_names: list, n: int = 15) -> list:
         if self.feature_importances_ is None:

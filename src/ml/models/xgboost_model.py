@@ -2,24 +2,24 @@ import pickle
 import numpy as np
 from pathlib import Path
 from xgboost import XGBClassifier
-from sklearn.metrics import classification_report, f1_score
+from sklearn.metrics import classification_report, f1_score, confusion_matrix
 from src.utils.config import settings
 from src.utils.logger import logger
 
 
 class XGBModel:
 
-    def __init__(self, n_classes: int = 7):
+    def __init__(self, n_classes: int = 8):
         self.n_classes   = n_classes
         self.class_names = []
         self.model       = XGBClassifier(
-            n_estimators=300,
-            max_depth=8,
-            learning_rate=0.1,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            min_child_weight=5,
-            gamma=0.1,
+            n_estimators=400,
+            max_depth=9,
+            learning_rate=0.08,
+            subsample=0.85,
+            colsample_bytree=0.85,
+            min_child_weight=3,
+            gamma=0.05,
             objective="multi:softprob",
             num_class=n_classes,
             eval_metric="mlogloss",
@@ -29,9 +29,24 @@ class XGBModel:
             verbosity=0,
         )
 
-    def train(self, X_train: np.ndarray, y_train: np.ndarray):
-        logger.info(f"Training XGBoost on {len(X_train):,} samples, {self.n_classes} classes...")
-        self.model.fit(X_train, y_train)
+    def train(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        sample_weight: np.ndarray = None,
+        use_cost_sensitive: bool = False,
+        infilt_boost: float = 1.5,
+    ):
+        if sample_weight is None and use_cost_sensitive:
+            from sklearn.utils.class_weight import compute_sample_weight
+            logger.info(f"Applying Cost-Sensitive Sample Weights (balanced + Infiltration boost={infilt_boost}x)...")
+            sample_weight = compute_sample_weight("balanced", y_train)
+            if self.class_names and "Infiltration" in self.class_names:
+                infilt_idx = self.class_names.index("Infiltration")
+                sample_weight[y_train == infilt_idx] *= infilt_boost
+
+        logger.info(f"Training High-Performance XGBoost ({self.model.n_estimators} trees, max_depth={self.model.max_depth}) on {len(X_train):,} samples...")
+        self.model.fit(X_train, y_train, sample_weight=sample_weight)
         logger.success("XGBoost training complete")
         return self
 
@@ -64,11 +79,20 @@ class XGBModel:
             target_names=self.class_names or None,
             output_dict=True,
         )
+        cm = confusion_matrix(y_test, y_pred)
+
         logger.info("\n" + classification_report(
             y_test, y_pred,
             target_names=self.class_names or None,
         ))
-        return {"macro_f1": float(macro_f1), "report": report}
+        logger.info(f"Confusion Matrix:\n{cm}")
+
+        return {
+            "macro_f1": float(macro_f1),
+            "report": report,
+            "confusion_matrix": cm.tolist(),
+            "labels": self.class_names or list(range(self.n_classes)),
+        }
 
     def feature_importance(self, feature_names: list, n: int = 15) -> list:
         scores  = self.model.feature_importances_

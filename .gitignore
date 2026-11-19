@@ -10,6 +10,12 @@ venv/
 data/raw/
 data/processed/
 data/models/
+*.db
+*.sqlite
+
+# Logs
+logs/
+*.log
 
 # Env
 .env

@@ -7,15 +7,16 @@ from src.utils.config import settings
 from src.utils.logger import logger
 
 ATTACK_SEVERITY = {
-    "BENIGN":     0,
-    "DoS":        4,
-    "DDoS":       5,
-    "BruteForce": 3,
-    "WebAttack":  3,
-    "PortScan":   2,
-    "Bot":        4,
+    "BENIGN":       0,
+    "DoS":          4,
+    "DDoS":         5,
+    "BruteForce":   3,
+    "WebAttack":    3,
+    "PortScan":     2,
+    "Bot":          4,
     "Infiltration": 5,
-    "ATTACK":     3,
+    "ATTACK":       3,
+    "ANOMALY":      3,
 }
 
 SEVERITY_LABELS = {
@@ -37,6 +38,7 @@ class DetectionEngine:
         self.rf_model      = None
         self.xgb_model     = None
         self.lstm_model    = None
+        self.iso_model     = None
         self.feature_cols  = []
         self.class_names   = []
         self._loaded       = False
@@ -62,7 +64,7 @@ class DetectionEngine:
         with open(scaler_path, "rb") as f:
             self.scaler = pickle.load(f)
 
-        with open(meta_path) as f:
+        with open(meta_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
 
         self.feature_cols = meta.get("feature_columns", [])
@@ -74,7 +76,7 @@ class DetectionEngine:
             try:
                 from src.ml.models.random_forest import RFModel
                 self.rf_model = RFModel().load(rf_path)
-                logger.info("  Random Forest : loaded")
+                logger.info("  Random Forest    : loaded")
             except Exception as e:
                 logger.warning(f"  Random Forest load failed: {e}")
 
@@ -85,7 +87,7 @@ class DetectionEngine:
                 from src.ml.models.xgboost_model import XGBModel
                 self.xgb_model = XGBModel.load(xgb_path)
                 self.xgb_model.class_names = self.class_names
-                logger.info("  XGBoost       : loaded")
+                logger.info("  XGBoost          : loaded")
             except Exception as e:
                 logger.warning(f"  XGBoost load failed: {e}")
 
@@ -95,17 +97,28 @@ class DetectionEngine:
             try:
                 from src.ml.models.lstm_model import LSTMModel
                 self.lstm_model = LSTMModel.load(lstm_path)
-                logger.info("  LSTM          : loaded")
+                logger.info("  LSTM             : loaded")
             except Exception as e:
                 logger.warning(f"  LSTM load failed: {e}")
+
+        # Load Isolation Forest
+        iso_path = models_dir / "isolation_forest.pkl"
+        if iso_path.exists():
+            try:
+                from src.ml.models.isolation_forest import IsolationForestModel
+                self.iso_model = IsolationForestModel.load(iso_path)
+                logger.info("  Isolation Forest : loaded")
+            except Exception as e:
+                logger.warning(f"  Isolation Forest load failed: {e}")
 
         self._loaded = True
         n = sum([
             self.rf_model   is not None,
             self.xgb_model  is not None,
             self.lstm_model is not None,
+            self.iso_model  is not None,
         ])
-        logger.success(f"Detection Engine ready — {n}/3 models loaded")
+        logger.success(f"Detection Engine ready — {n}/4 models loaded")
 
     def _preprocess(self, features: dict | list | np.ndarray) -> np.ndarray:
         if isinstance(features, dict):
@@ -152,19 +165,56 @@ class DetectionEngine:
         if self.lstm_model:
             results["lstm"] = self.lstm_model.predict_single(arr)
 
-        # Ensemble vote
+        if self.iso_model:
+            results["iso"] = self.iso_model.predict_single(arr)
+
+        # Ensemble voting & resolution across all 4 models
         attack_votes = sum(
             1 for r in results.values()
-            if r.get("is_attack", r.get("label") == "ATTACK")
+            if r.get("is_attack", r.get("label") in ["ATTACK", "ANOMALY"])
         )
-        total_votes      = len(results)
-        ensemble_attack  = attack_votes > total_votes / 2
+        total_votes = len(results)
 
-        # Primary label from XGBoost (most specific), fallback to RF
-        primary      = results.get("xgb") or results.get("rf") or {}
-        attack_type  = primary.get("label", "UNKNOWN") if ensemble_attack else "BENIGN"
-        confidence   = primary.get("confidence", 0.0)
-        should_alert = ensemble_attack and confidence >= settings.alert_confidence_min
+        xgb_res = results.get("xgb", {})
+        rf_res = results.get("rf", {})
+        iso_res = results.get("iso", {})
+        lstm_res = results.get("lstm", {})
+
+        xgb_attack = xgb_res.get("is_attack", False) and xgb_res.get("label") != "BENIGN"
+        rf_attack = rf_res.get("is_attack", False)
+
+        # In Enterprise IDS:
+        # 1. Consensus of 2 or more models (e.g. RF + XGBoost) is an ATTACK.
+        # 2. Or high-confidence supervised attack from XGBoost (>= 55%) or RF (>= 70%).
+        # 3. Or statistical anomaly flagged by Isolation Forest.
+        ensemble_attack = (
+            attack_votes >= 2 or
+            (xgb_attack and xgb_res.get("confidence", 0) >= 0.55) or
+            (rf_attack and rf_res.get("confidence", 0) >= 0.70) or
+            (iso_res.get("is_attack", False) and iso_res.get("confidence", 0) >= 0.65)
+        )
+
+        if ensemble_attack:
+            if xgb_attack:
+                attack_type = xgb_res.get("label")
+                confidence = xgb_res.get("confidence", 0.0)
+            elif rf_attack:
+                attack_type = "ATTACK"
+                confidence = rf_res.get("confidence", 0.0)
+            elif iso_res.get("is_attack", False):
+                attack_type = "ANOMALY"
+                confidence = iso_res.get("confidence", 0.0)
+            elif lstm_res.get("is_attack", False):
+                attack_type = "ATTACK"
+                confidence = lstm_res.get("confidence", 0.0)
+            else:
+                attack_type = "ATTACK"
+                confidence = 0.75
+        else:
+            attack_type = "BENIGN"
+            confidence = xgb_res.get("confidence", 1.0) if not xgb_attack else 0.95
+
+        should_alert = ensemble_attack and confidence >= 0.50
 
         severity = self._severity(attack_type, confidence)
 
@@ -181,16 +231,17 @@ class DetectionEngine:
     @property
     def is_ready(self) -> bool:
         return self._loaded and any([
-            self.rf_model, self.xgb_model, self.lstm_model
+            self.rf_model, self.xgb_model, self.lstm_model, self.iso_model
         ])
 
     def status(self) -> dict:
         return {
             "loaded": self._loaded,
             "models": {
-                "random_forest": self.rf_model   is not None,
-                "xgboost":       self.xgb_model  is not None,
-                "lstm":          self.lstm_model  is not None,
+                "random_forest":    self.rf_model   is not None,
+                "xgboost":          self.xgb_model  is not None,
+                "lstm":             self.lstm_model is not None,
+                "isolation_forest": self.iso_model  is not None,
             },
             "n_features":  len(self.feature_cols),
             "class_names": self.class_names,

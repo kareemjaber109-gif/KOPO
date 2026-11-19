@@ -2,13 +2,7 @@ import { useState } from 'react'
 import { Send, RefreshCw, Zap } from 'lucide-react'
 import { api } from '../utils/api.js'
 import { attackColor } from '../utils/helpers.js'
-
-const PRESETS = {
-  'Normal HTTP': { 'SYN Flag Count': 1, 'Flow Duration': 50000, 'Total Fwd Packets': 10, 'Flow Bytes/s': 1200, 'FIN Flag Count': 1 },
-  'Port Scan':   { 'SYN Flag Count': 1, 'Flow Duration': 500,   'Total Fwd Packets': 1,  'Flow Bytes/s': 800,  'RST Flag Count': 1 },
-  'DoS Attack':  { 'SYN Flag Count': 850, 'Flow Duration': 5000000, 'Total Fwd Packets': 5000, 'Flow Bytes/s': 9000000, 'FIN Flag Count': 0 },
-  'Brute Force': { 'SYN Flag Count': 1, 'Flow Duration': 30000000, 'Total Fwd Packets': 300, 'Flow Bytes/s': 4200, 'ACK Flag Count': 280 },
-}
+import PRESETS from './presets.json'
 
 export default function Detect() {
   const [preset,      setPreset]      = useState('Normal HTTP')
@@ -63,7 +57,7 @@ export default function Detect() {
           <textarea
             value={featureText}
             onChange={e => { setFeatureText(e.target.value); setPreset(null) }}
-            style={{ width: '100%', minHeight: 200, background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: 14, resize: 'vertical', outline: 'none' }}
+            style={{ width: '100%', minHeight: 250, background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11, padding: 14, resize: 'vertical', outline: 'none' }}
             spellCheck={false}
           />
 
@@ -102,7 +96,7 @@ export default function Detect() {
               {Object.entries(result.model_results ?? {}).map(([model, r]) => (
                 <div key={model} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                   <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{model.toUpperCase()}</span>
-                  <span style={{ color: (r.is_attack || r.label === 'ATTACK') ? 'var(--accent-red)' : 'var(--accent-green)', fontSize: 11, fontWeight: 500 }}>
+                  <span style={{ color: (r.is_attack || r.label === 'ATTACK' || r.label === 'ANOMALY') ? 'var(--accent-red)' : 'var(--accent-green)', fontSize: 11, fontWeight: 500 }}>
                     {r.label} · {(r.confidence * 100).toFixed(1)}%
                   </span>
                 </div>

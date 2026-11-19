@@ -2,8 +2,8 @@ import { useCallback } from 'react'
 import { usePolling } from '../hooks/usePolling.js'
 import { api } from '../utils/api.js'
 
-const MODEL_COLORS = { random_forest: '#00d4ff', xgboost: '#39d353', lstm: '#bd93f9' }
-const MODEL_LABELS = { random_forest: 'Random Forest', xgboost: 'XGBoost', lstm: 'LSTM' }
+const MODEL_COLORS = { random_forest: '#00d4ff', xgboost: '#39d353', lstm: '#bd93f9', isolation_forest: '#ffb86c' }
+const MODEL_LABELS = { random_forest: 'Random Forest', xgboost: 'XGBoost', lstm: 'LSTM', isolation_forest: 'Isolation Forest' }
 
 function Bar({ value, color }) {
   return (
@@ -25,8 +25,8 @@ export default function Models() {
       <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Model Performance</div>
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 28 }}>Evaluation metrics from test set</div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 24 }}>
-        {['random_forest','xgboost','lstm'].map(name => {
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 24 }}>
+        {['random_forest','xgboost','lstm','isolation_forest'].map(name => {
           const m     = models[name] ?? {}
           const color = MODEL_COLORS[name]
           const f1    = m.f1 ?? m.macro_f1

@@ -54,7 +54,7 @@ export default function Overview() {
         <StatCard label="Total Analyzed"   value={stats?.total_analyzed?.toLocaleString() ?? '—'} sub="network flows"   color="var(--accent-cyan)"   icon={Activity} />
         <StatCard label="Threats Detected" value={stats?.total_alerts?.toLocaleString() ?? '—'}   sub={`${attackRate}% rate`} color="var(--accent-red)" icon={AlertTriangle} />
         <StatCard label="Last 24h"         value={stats?.recent_24h ?? '—'}                        sub="new alerts"      color="var(--accent-amber)"  icon={Zap} />
-        <StatCard label="Status"           value="ONLINE"                                           sub="3 models active" color="var(--accent-green)"  icon={Shield} />
+        <StatCard label="Status"           value="ONLINE"                                           sub="4 models active" color="var(--accent-green)"  icon={Shield} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 24 }}>

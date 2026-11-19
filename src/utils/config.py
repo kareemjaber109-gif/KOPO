@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     # Alert thresholds
-    alert_confidence_min: float = 0.75
+    alert_confidence_min: float = 0.55
     high_severity_threshold: float = 0.92
 
     def create_dirs(self):
