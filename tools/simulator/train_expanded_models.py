@@ -464,4 +464,11 @@ def train_and_update_models():
 
 
 if __name__ == "__main__":
+    import os
+    if not os.environ.get("KOPO_ALLOW_SIMULATOR_OVERWRITE"):
+        raise PermissionError(
+            "CRITICAL PROTOCOL VIOLATION: Simulator training scripts are strictly forbidden from writing "
+            "to production model weights. Use Phase 1 benchmark training pipeline instead, or set "
+            "KOPO_ALLOW_SIMULATOR_OVERWRITE=1 for isolated demo experiments."
+        )
     train_and_update_models()

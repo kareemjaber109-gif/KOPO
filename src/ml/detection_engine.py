@@ -142,6 +142,8 @@ class DetectionEngine:
         self.anomaly_preprocessor = None
         self.feature_cols  = []
         self.class_names   = []
+        self.active_run_id = "default"
+        self.data_origin   = "real"
         self._loaded       = False
 
     @classmethod
@@ -152,8 +154,40 @@ class DetectionEngine:
         return cls._instance
 
     def load(self):
+        import os
         processed  = settings.data_processed_dir
-        models_dir = settings.models_dir
+        base_models_dir = settings.models_dir
+
+        # Read active run pointer from current.json (Windows-safe pointer, replaces symlinks)
+        current_config = base_models_dir / "current.json"
+        active_models_dir = base_models_dir
+        self.data_origin = "real"
+        self.active_run_id = "default"
+
+        if current_config.exists():
+            try:
+                with open(current_config, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                run_dir_str = cfg.get("run_dir", "")
+                if run_dir_str:
+                    cand_dir = Path(run_dir_str)
+                    if not cand_dir.is_absolute():
+                        cand_dir = Path.cwd() / cand_dir
+                    if cand_dir.exists():
+                        active_models_dir = cand_dir
+                self.data_origin = cfg.get("data_origin", "synthetic")
+                self.active_run_id = cfg.get("active_run_id", "quarantine_synthetic_v0")
+                logger.info(f"Loaded active model pointer: '{self.active_run_id}' [origin: {self.data_origin}] from current.json")
+            except Exception as e:
+                logger.warning(f"Failed to read current.json: {e}")
+
+        # Enforce Safety Guard on Synthetic Models
+        is_demo_mode = os.environ.get("KOPO_DEMO_MODE", "true").lower() in ["true", "1", "yes"]
+        if self.data_origin == "synthetic":
+            if is_demo_mode:
+                logger.warning("DEMO NOTICE: Loading quarantined synthetic models for UI demonstration. Production benchmark requires real dataset run.")
+            else:
+                raise RuntimeError("PRODUCTION INTEGRITY ERROR: Synthetic models rejected in non-demo mode. Activate a clean benchmark run in current.json.")
 
         scaler_path = processed / "scaler.pkl"
         meta_path   = processed / "metadata.json"
@@ -171,8 +205,10 @@ class DetectionEngine:
         self.feature_cols = meta.get("feature_columns", [])
         self.class_names  = meta.get("class_names", [])
 
-        # Load Random Forest
-        rf_path = models_dir / "random_forest.pkl"
+        # Load Random Forest (prioritize active run, fallback to base)
+        rf_path = active_models_dir / "random_forest.pkl"
+        if not rf_path.exists():
+            rf_path = base_models_dir / "random_forest.pkl"
         if rf_path.exists():
             try:
                 from src.ml.models.random_forest import RFModel
@@ -182,7 +218,9 @@ class DetectionEngine:
                 logger.warning(f"  Random Forest load failed: {e}")
 
         # Load XGBoost
-        xgb_path = models_dir / "xgboost.pkl"
+        xgb_path = active_models_dir / "xgboost.pkl"
+        if not xgb_path.exists():
+            xgb_path = base_models_dir / "xgboost.pkl"
         if xgb_path.exists():
             try:
                 from src.ml.models.xgboost_model import XGBModel
@@ -194,7 +232,9 @@ class DetectionEngine:
                 logger.warning(f"  XGBoost load failed: {e}")
 
         # Load LSTM
-        lstm_path = models_dir / "lstm.pt"
+        lstm_path = active_models_dir / "lstm.pt"
+        if not lstm_path.exists():
+            lstm_path = base_models_dir / "lstm.pt"
         if lstm_path.exists():
             try:
                 from src.ml.models.lstm_model import LSTMModel
@@ -204,7 +244,9 @@ class DetectionEngine:
                 logger.warning(f"  LSTM load failed: {e}")
 
         # Load Isolation Forest
-        iso_path = models_dir / "isolation_forest.pkl"
+        iso_path = active_models_dir / "isolation_forest.pkl"
+        if not iso_path.exists():
+            iso_path = base_models_dir / "isolation_forest.pkl"
         if iso_path.exists():
             try:
                 from src.ml.models.isolation_forest import IsolationForestModel
@@ -214,7 +256,9 @@ class DetectionEngine:
                 logger.warning(f"  Isolation Forest load failed: {e}")
 
         # Load Anomaly Ensemble (Autoencoder + Isolation Forest on Benign)
-        anomaly_dir = models_dir / "anomaly"
+        anomaly_dir = active_models_dir / "anomaly"
+        if not anomaly_dir.exists():
+            anomaly_dir = base_models_dir / "anomaly"
         if anomaly_dir.exists() and (anomaly_dir / "feature_names.json").exists():
             try:
                 from src.ml.anomaly.preprocessing import AnomalyPreprocessor
@@ -646,6 +690,8 @@ class DetectionEngine:
     def status(self) -> dict:
         return {
             "loaded": self._loaded,
+            "active_run_id": self.active_run_id,
+            "data_origin": self.data_origin,
             "models": {
                 "random_forest":    self.rf_model   is not None,
                 "xgboost":          self.xgb_model  is not None,
