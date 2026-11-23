@@ -12,6 +12,12 @@ data/processed/
 data/models/
 *.db
 *.sqlite
+flows*.csv
+flows*.jsonl
+*.parquet
+*.npy
+*.pt
+*.pkl
 
 # Logs
 logs/
