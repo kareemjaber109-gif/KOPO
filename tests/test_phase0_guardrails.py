@@ -1,9 +1,30 @@
+from pathlib import Path
+import json
 import os
 import subprocess
 import pytest
 from fastapi.testclient import TestClient
 from src.api.main import app
 from src.ml.detection_engine import DetectionEngine
+
+
+@pytest.fixture
+def synthetic_pointer():
+    """Temporarily point current.json to quarantine_synthetic_v0 to test synthetic guardrails."""
+    cpath = Path("data/models/current.json")
+    original = cpath.read_text(encoding="utf-8") if cpath.exists() else None
+    synthetic_config = {
+        "active_run_id": "quarantine_synthetic_v0",
+        "run_dir": "data/models/_quarantine_synthetic",
+        "data_origin": "synthetic"
+    }
+    with open(cpath, "w", encoding="utf-8") as f:
+        json.dump(synthetic_config, f, indent=2)
+    DetectionEngine._instance = None
+    yield
+    if original is not None:
+        cpath.write_text(original, encoding="utf-8")
+    DetectionEngine._instance = None
 
 
 def test_simulator_train_granular_blocked():
@@ -38,7 +59,7 @@ def test_simulator_train_expanded_blocked():
     assert "CRITICAL PROTOCOL VIOLATION" in res.stderr
 
 
-def test_engine_strict_by_default_rejects_synthetic():
+def test_engine_strict_by_default_rejects_synthetic(synthetic_pointer):
     """Verify DetectionEngine refuses to load synthetic weights in default strict mode."""
     os.environ["KOPO_DEMO_MODE"] = "false"
     engine = DetectionEngine()
@@ -47,7 +68,7 @@ def test_engine_strict_by_default_rejects_synthetic():
     assert engine.is_ready is False
 
 
-def test_health_reports_model_origin_and_run_id():
+def test_health_reports_model_origin_and_run_id(synthetic_pointer):
     """Verify /api/health returns model_origin, run_id, and degraded status when synthetic."""
     os.environ["KOPO_DEMO_MODE"] = "false"
     engine = DetectionEngine.get_instance()
@@ -62,7 +83,7 @@ def test_health_reports_model_origin_and_run_id():
     assert data["is_ready"] is False
 
 
-def test_detect_endpoint_returns_503_in_strict_mode():
+def test_detect_endpoint_returns_503_in_strict_mode(synthetic_pointer):
     """Verify /api/detect returns 503 when synthetic models are quarantined and real run is pending."""
     os.environ["KOPO_DEMO_MODE"] = "false"
     engine = DetectionEngine.get_instance()

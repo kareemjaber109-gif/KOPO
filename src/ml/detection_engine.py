@@ -1,3 +1,4 @@
+import os
 import json
 import pickle
 from pathlib import Path
@@ -181,15 +182,31 @@ class DetectionEngine:
             except Exception as e:
                 logger.warning(f"Failed to read current.json: {e}")
 
+        # Check independent anomaly model manifest
+        anomaly_dir = active_models_dir / "anomaly"
+        if not anomaly_dir.exists():
+            anomaly_dir = base_models_dir / "anomaly"
+
+        self.anomaly_manifest = None
+        self.anomaly_origin = "real"
+        self.anomaly_ready = False
+        if (anomaly_dir / "manifest.json").exists():
+            try:
+                with open(anomaly_dir / "manifest.json", "r", encoding="utf-8") as f:
+                    self.anomaly_manifest = json.load(f)
+                    self.anomaly_origin = self.anomaly_manifest.get("data_origin", "real")
+            except Exception as e:
+                logger.warning(f"Failed to read anomaly manifest: {e}")
+
         # Enforce Safety Guard on Synthetic Models (Default mode is STRICT / production)
         is_demo_mode = os.environ.get("KOPO_DEMO_MODE", "false").lower() in ["true", "1", "yes"]
+        load_supervised = True
         if self.data_origin == "synthetic":
             if is_demo_mode:
                 logger.warning("DEMO NOTICE: Loading quarantined synthetic models for UI demonstration. Production benchmark requires real dataset run.")
             else:
-                logger.warning("STRICT PRODUCTION MODE: Synthetic models detected in current.json. Engine refusing to serve synthetic weights in production mode.")
-                self._loaded = False
-                return
+                logger.warning("STRICT PRODUCTION MODE: Synthetic supervised models detected in current.json. Refusing to serve synthetic weights in production mode.")
+                load_supervised = False
 
         scaler_path = processed / "scaler.pkl"
         meta_path   = processed / "metadata.json"
@@ -207,72 +224,70 @@ class DetectionEngine:
         self.feature_cols = meta.get("feature_columns", [])
         self.class_names  = meta.get("class_names", [])
 
-        # Load Random Forest (prioritize active run, fallback to base)
-        rf_path = active_models_dir / "random_forest.pkl"
-        if not rf_path.exists():
-            rf_path = base_models_dir / "random_forest.pkl"
-        if rf_path.exists():
-            try:
-                from src.ml.models.random_forest import RFModel
-                self.rf_model = RFModel().load(rf_path)
-                logger.info("  Random Forest    : loaded")
-            except Exception as e:
-                logger.warning(f"  Random Forest load failed: {e}")
+        # Load Supervised models only when allowed (demo mode or verified real benchmark run)
+        if load_supervised:
+            rf_path = active_models_dir / "random_forest.pkl"
+            if not rf_path.exists():
+                rf_path = base_models_dir / "random_forest.pkl"
+            if rf_path.exists():
+                try:
+                    from src.ml.models.random_forest import RFModel
+                    self.rf_model = RFModel().load(rf_path)
+                    logger.info("  Random Forest    : loaded")
+                except Exception as e:
+                    logger.warning(f"  Random Forest load failed: {e}")
 
-        # Load XGBoost
-        xgb_path = active_models_dir / "xgboost.pkl"
-        if not xgb_path.exists():
-            xgb_path = base_models_dir / "xgboost.pkl"
-        if xgb_path.exists():
-            try:
-                from src.ml.models.xgboost_model import XGBModel
-                self.xgb_model = XGBModel.load(xgb_path)
-                if not getattr(self.xgb_model, "class_names", None):
-                    self.xgb_model.class_names = self.class_names
-                logger.info(f"  XGBoost          : loaded ({len(self.xgb_model.class_names)} classes)")
-            except Exception as e:
-                logger.warning(f"  XGBoost load failed: {e}")
+            xgb_path = active_models_dir / "xgboost.pkl"
+            if not xgb_path.exists():
+                xgb_path = base_models_dir / "xgboost.pkl"
+            if xgb_path.exists():
+                try:
+                    from src.ml.models.xgboost_model import XGBModel
+                    self.xgb_model = XGBModel.load(xgb_path)
+                    if not getattr(self.xgb_model, "class_names", None):
+                        self.xgb_model.class_names = self.class_names
+                    logger.info(f"  XGBoost          : loaded ({len(self.xgb_model.class_names)} classes)")
+                except Exception as e:
+                    logger.warning(f"  XGBoost load failed: {e}")
 
-        # Load LSTM
-        lstm_path = active_models_dir / "lstm.pt"
-        if not lstm_path.exists():
-            lstm_path = base_models_dir / "lstm.pt"
-        if lstm_path.exists():
-            try:
-                from src.ml.models.lstm_model import LSTMModel
-                self.lstm_model = LSTMModel.load(lstm_path)
-                logger.info("  LSTM             : loaded")
-            except Exception as e:
-                logger.warning(f"  LSTM load failed: {e}")
+            lstm_path = active_models_dir / "lstm.pt"
+            if not lstm_path.exists():
+                lstm_path = base_models_dir / "lstm.pt"
+            if lstm_path.exists():
+                try:
+                    from src.ml.models.lstm_model import LSTMModel
+                    self.lstm_model = LSTMModel.load(lstm_path)
+                    logger.info("  LSTM             : loaded")
+                except Exception as e:
+                    logger.warning(f"  LSTM load failed: {e}")
 
-        # Load Isolation Forest
-        iso_path = active_models_dir / "isolation_forest.pkl"
-        if not iso_path.exists():
-            iso_path = base_models_dir / "isolation_forest.pkl"
-        if iso_path.exists():
-            try:
-                from src.ml.models.isolation_forest import IsolationForestModel
-                self.iso_model = IsolationForestModel.load(iso_path)
-                logger.info("  Isolation Forest : loaded")
-            except Exception as e:
-                logger.warning(f"  Isolation Forest load failed: {e}")
+            iso_path = active_models_dir / "isolation_forest.pkl"
+            if not iso_path.exists():
+                iso_path = base_models_dir / "isolation_forest.pkl"
+            if iso_path.exists():
+                try:
+                    from src.ml.models.isolation_forest import IsolationForestModel
+                    self.iso_model = IsolationForestModel.load(iso_path)
+                    logger.info("  Isolation Forest : loaded")
+                except Exception as e:
+                    logger.warning(f"  Isolation Forest load failed: {e}")
 
-        # Load Anomaly Ensemble (Autoencoder + Isolation Forest on Benign)
-        anomaly_dir = active_models_dir / "anomaly"
-        if not anomaly_dir.exists():
-            anomaly_dir = base_models_dir / "anomaly"
+        # Load Anomaly Ensemble independently (loads in strict mode if data_origin == 'real')
         if anomaly_dir.exists() and (anomaly_dir / "feature_names.json").exists():
-            try:
-                from src.ml.anomaly.preprocessing import AnomalyPreprocessor
-                from src.ml.anomaly.anomaly_ensemble import AnomalyEnsemble
+            can_load_anomaly = (self.anomaly_origin == "real") or is_demo_mode
+            if can_load_anomaly:
+                try:
+                    from src.ml.anomaly.preprocessing import AnomalyPreprocessor
+                    from src.ml.anomaly.anomaly_ensemble import AnomalyEnsemble
 
-                self.anomaly_preprocessor = AnomalyPreprocessor.load(anomaly_dir)
-                self.anomaly_ensemble = AnomalyEnsemble.load(anomaly_dir)
-                logger.info(f"  Anomaly Ensemble : loaded (threshold={self.anomaly_ensemble.threshold:.4f})")
-            except Exception as e:
-                logger.warning(f"  Anomaly Ensemble load failed: {e}")
+                    self.anomaly_preprocessor = AnomalyPreprocessor.load(anomaly_dir)
+                    self.anomaly_ensemble = AnomalyEnsemble.load(anomaly_dir)
+                    self.anomaly_ready = True
+                    logger.info(f"  Anomaly Ensemble : loaded [origin: {self.anomaly_origin}] (threshold={self.anomaly_ensemble.threshold:.4f})")
+                except Exception as e:
+                    logger.warning(f"  Anomaly Ensemble load failed: {e}")
 
-        self._loaded = True
+        self._loaded = bool(load_supervised or self.anomaly_ready)
         n = sum([
             self.rf_model   is not None,
             self.xgb_model  is not None,
@@ -326,6 +341,10 @@ class DetectionEngine:
             f["Packet Length Max"] = fwd_max
         if "Avg Fwd Segment Size" not in f:
             f["Avg Fwd Segment Size"] = avg_pkt
+        if "Average Packet Size" not in f:
+            f["Average Packet Size"] = avg_pkt
+        if "Avg Packet Size" not in f:
+            f["Avg Packet Size"] = avg_pkt
 
         # 4. Header Lengths
         proto = int(f.get("Protocol", 6))
@@ -550,10 +569,36 @@ class DetectionEngine:
         results = {}
 
         if self.rf_model:
-            results["rf"] = self.rf_model.predict_single(arr)
+            if hasattr(self.rf_model, "predict_single"):
+                results["rf"] = self.rf_model.predict_single(arr)
+            else:
+                probs = self.rf_model.predict_proba(arr.reshape(1, -1))[0]
+                pred_idx = int(np.argmax(probs))
+                cname = self.class_names[pred_idx] if pred_idx < len(self.class_names) else str(pred_idx)
+                conf = float(probs[pred_idx])
+                results["rf"] = {
+                    "prediction": pred_idx,
+                    "label": cname,
+                    "confidence": conf,
+                    "is_attack": cname != "BENIGN",
+                    "all_probabilities": {self.class_names[i]: float(probs[i]) for i in range(len(self.class_names)) if i < len(probs)}
+                }
 
         if self.xgb_model:
-            results["xgb"] = self.xgb_model.predict_single(arr)
+            if hasattr(self.xgb_model, "predict_single"):
+                results["xgb"] = self.xgb_model.predict_single(arr)
+            else:
+                probs = self.xgb_model.predict_proba(arr.reshape(1, -1))[0]
+                pred_idx = int(np.argmax(probs))
+                cname = self.class_names[pred_idx] if pred_idx < len(self.class_names) else str(pred_idx)
+                conf = float(probs[pred_idx])
+                results["xgb"] = {
+                    "prediction": pred_idx,
+                    "label": cname,
+                    "confidence": conf,
+                    "is_attack": cname != "BENIGN",
+                    "all_probabilities": {self.class_names[i]: float(probs[i]) for i in range(len(self.class_names)) if i < len(probs)}
+                }
 
         if self.lstm_model:
             results["lstm"] = self.lstm_model.predict_single(arr)
@@ -667,6 +712,14 @@ class DetectionEngine:
 
         should_alert = ensemble_attack and confidence >= 0.50
 
+        # Determine SOC action: DROP, REVIEW, or ALLOW
+        if ensemble_attack and confidence >= 0.70 and attack_type != "ANOMALY":
+            action = "DROP"
+        elif ensemble_attack or is_anomaly:
+            action = "REVIEW"
+        else:
+            action = "ALLOW"
+
         severity = self._severity(attack_type, confidence)
         attack_category = ATTACK_CATEGORY_MAP.get(attack_type, "Threat Detected" if ensemble_attack else "Normal Traffic")
 
@@ -675,6 +728,7 @@ class DetectionEngine:
             "attack_type":      attack_type,
             "attack_category":  attack_category,
             "confidence":       round(confidence, 4),
+            "action":           action,
             "should_alert":     should_alert,
             "anomaly_score":    round(anomaly_score, 4) if anomaly_score is not None else None,
             "is_anomaly":       is_anomaly,
@@ -685,6 +739,10 @@ class DetectionEngine:
 
     @property
     def is_ready(self) -> bool:
+        # Full production readiness requires certified real supervised models
+        is_demo_mode = os.environ.get("KOPO_DEMO_MODE", "false").lower() in ["true", "1", "yes"]
+        if self.data_origin == "synthetic" and not is_demo_mode:
+            return False
         return self._loaded and any([
             self.rf_model, self.xgb_model, self.lstm_model, self.iso_model, self.anomaly_ensemble
         ])
@@ -694,6 +752,8 @@ class DetectionEngine:
             "loaded": self._loaded,
             "active_run_id": self.active_run_id,
             "data_origin": self.data_origin,
+            "anomaly_origin": getattr(self, "anomaly_origin", "real"),
+            "anomaly_ready": getattr(self, "anomaly_ready", False),
             "models": {
                 "random_forest":    self.rf_model   is not None,
                 "xgboost":          self.xgb_model  is not None,
