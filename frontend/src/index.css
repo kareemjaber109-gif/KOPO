@@ -1,52 +1,144 @@
+@import './styles/tokens.css';
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg-base:      #080c10;
-  --bg-surface:   #0d1117;
-  --bg-elevated:  #161b22;
-  --border:       rgba(48, 54, 61, 0.8);
-  --text-primary: #e6edf3;
+  --bg-base:        #080c10;
+  --bg-surface:     #0d1117;
+  --bg-elevated:    #161b22;
+  --border:         rgba(48, 54, 61, 0.8);
+  --border-subtle:  rgba(48, 54, 61, 0.4);
+  --text-primary:   #e6edf3;
   --text-secondary: #8b949e;
-  --text-muted:   #484f58;
-  --accent-cyan:  #00d4ff;
-  --accent-green: #39d353;
-  --accent-amber: #f0a500;
-  --accent-red:   #ff4757;
-  --accent-purple: #bd93f9;
-  --font-display: 'Syne', sans-serif;
-  --font-mono:    'JetBrains Mono', monospace;
+  --text-muted:     #484f58;
+  --code-bg:        #05070a;
+  --card-shadow:    0 4px 24px rgba(0, 0, 0, 0.35);
+  --dropdown-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  --header-gradient: linear-gradient(180deg, rgba(22, 27, 34, 0.8) 0%, rgba(13, 17, 23, 0.95) 100%);
+
+  --accent-cyan:    #00d4ff;
+  --accent-green:   #39d353;
+  --accent-amber:   #f0a500;
+  --accent-red:     #ff4757;
+  --accent-purple:  #bd93f9;
+  
+  --font-sans:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:      'JetBrains Mono', 'Fira Code', monospace;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
+}
+
+/* Eye-Comfort Soft Slate Light Mode (Low Glare / Anti-Fatigue) */
+[data-theme="light"] {
+  --bg-base:        #cad5e2;
+  --bg-surface:     #dce4ee;
+  --bg-elevated:    #eaf0f7;
+  --border:         rgba(51, 65, 85, 0.32);
+  --border-subtle:  rgba(51, 65, 85, 0.18);
+  --text-primary:   #0f172a;
+  --text-secondary: #334155;
+  --text-muted:     #64748b;
+  --code-bg:        #090e17;
+  --card-shadow:    0 4px 18px rgba(15, 23, 42, 0.08);
+  --dropdown-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  --header-gradient: linear-gradient(180deg, #d5dfea 0%, #c6d3e2 100%);
+
+  --accent-cyan:    #0284c7;
+  --accent-green:   #059669;
+  --accent-amber:   #d97706;
+  --accent-red:     #e11d48;
+  --accent-purple:  #7c3aed;
 }
 
 html, body, #root {
   height: 100%;
   background: var(--bg-base);
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
-::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg-base); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
+/* Animation Keyframes */
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.85); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 14px rgba(0, 212, 255, 0.2); }
+  50% { box-shadow: 0 0 26px rgba(0, 212, 255, 0.5); }
 }
 
 @keyframes fade-in-up {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
-.animate-fade { animation: fade-in-up 0.3s ease forwards; }
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-drawer {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes scan-radar {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-fade {
+  animation: fade-in-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale {
+  animation: fade-in-scale 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide {
+  animation: slide-down 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-drawer {
+  animation: slide-drawer 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Micro-interactions & animations for menus, cards, and buttons */
+button, a, input, select, textarea {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+.interactive-card {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+}
+
+.interactive-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.22);
+  border-color: var(--accent-cyan);
+}
+
+.glow-cyan {
+  animation: pulse-glow 3s infinite ease-in-out;
+}

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -35,6 +36,10 @@ class Settings(BaseSettings):
     # Alert thresholds
     alert_confidence_min: float = 0.55
     high_severity_threshold: float = 0.92
+
+    # Anomaly Detection (UNSW-NB15 + CICIDS2017)
+    anomaly_enabled: bool = True
+    anomaly_threshold: Optional[float] = 0.9875
 
     def create_dirs(self):
         for d in [self.data_raw_dir, self.data_processed_dir,

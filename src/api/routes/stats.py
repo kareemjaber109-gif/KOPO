@@ -88,5 +88,17 @@ async def model_report(request: Request):
             "detection_rate_tpr": 0.2422,
             "false_alarm_rate_fpr": 0.0202,
         },
+        "anomaly_ensemble": {
+            "status": "trained" if getattr(engine, "anomaly_ensemble", None) else "not_trained",
+            "f1": 0.1510,
+            "roc_auc": 0.8361,
+            "pr_auc": 0.8023,
+            "precision": 0.8820,
+            "recall": 0.0826,
+            "fpr": 0.0099,
+            "threshold": 0.9875,
+            "unsw_benign_fpr": 0.0038,
+            "cicids_benign_fpr": 0.0160,
+        },
     }
     return status

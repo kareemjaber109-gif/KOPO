@@ -26,6 +26,8 @@ class Alert(Base):
     severity_score = Column(Integer, nullable=False)
     severity_label = Column(String(16), nullable=False)
     confidence     = Column(Float, nullable=False)
+    anomaly_score  = Column(Float, nullable=True)
+    is_anomaly     = Column(Boolean, nullable=True)
     is_attack      = Column(Boolean, default=True)
     source_ip      = Column(String(45), nullable=True)
     dest_ip        = Column(String(45), nullable=True)
@@ -36,11 +38,13 @@ class Alert(Base):
 class AnalysisLog(Base):
     __tablename__ = "analysis_log"
 
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp   = Column(DateTime, default=datetime.utcnow, index=True)
-    is_attack   = Column(Boolean, nullable=False)
-    attack_type = Column(String(64), nullable=False)
-    confidence  = Column(Float, nullable=False)
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp     = Column(DateTime, default=datetime.utcnow, index=True)
+    is_attack     = Column(Boolean, nullable=False)
+    attack_type   = Column(String(64), nullable=False)
+    confidence    = Column(Float, nullable=False)
+    anomaly_score = Column(Float, nullable=True)
+    is_anomaly    = Column(Boolean, nullable=True)
 
 
 async def init_db():

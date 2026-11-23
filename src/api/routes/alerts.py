@@ -5,6 +5,7 @@ from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.database import Alert, get_db
 from src.api.models import AlertListResponse, AlertResponse
+from src.ml.detection_engine import ATTACK_CATEGORY_MAP
 
 router = APIRouter()
 
@@ -43,12 +44,16 @@ async def get_alerts(
                 id=a.id,
                 timestamp=a.timestamp,
                 attack_type=a.attack_type,
+                attack_category=ATTACK_CATEGORY_MAP.get(a.attack_type, "Threat Detected"),
                 severity_label=a.severity_label,
                 severity_score=a.severity_score,
                 confidence=a.confidence,
+                anomaly_score=a.anomaly_score,
+                is_anomaly=a.is_anomaly,
                 source_ip=a.source_ip,
                 dest_ip=a.dest_ip,
                 is_acknowledged=a.is_acknowledged,
+                raw_result=a.raw_result,
             )
             for a in paged
         ],

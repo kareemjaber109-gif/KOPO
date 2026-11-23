@@ -23,8 +23,20 @@ async def detect(
             detail="Detection engine not ready. Train models first.",
         )
 
+    raw_features = payload.features
+    if raw_features is None:
+        extra = payload.model_extra or {}
+        raw_features = {k: v for k, v in extra.items() if k not in ["source_ip", "dest_ip"]}
+
+    clean_features = {}
+    for k, v in (raw_features or {}).items():
+        try:
+            clean_features[str(k).strip()] = float(v)
+        except (ValueError, TypeError):
+            continue
+
     try:
-        result = engine.predict(payload.features)
+        result = engine.predict(clean_features)
     except Exception as e:
         logger.error(f"Prediction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -36,6 +48,8 @@ async def detect(
         is_attack=result["is_attack"],
         attack_type=result["attack_type"],
         confidence=result["confidence"],
+        anomaly_score=result.get("anomaly_score"),
+        is_anomaly=result.get("is_anomaly"),
     )
     db.add(log)
 
@@ -47,6 +61,8 @@ async def detect(
             severity_score=result["severity_score"],
             severity_label=result["severity_label"],
             confidence=result["confidence"],
+            anomaly_score=result.get("anomaly_score"),
+            is_anomaly=result.get("is_anomaly"),
             is_attack=result["is_attack"],
             source_ip=payload.source_ip,
             dest_ip=payload.dest_ip,

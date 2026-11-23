@@ -7,6 +7,7 @@ export const ATTACK_COLORS = {
   WebAttack:  '#ff6b35',
   Bot:        '#ff4db8',
   ATTACK:     '#f0a500',
+  ANOMALY:    '#ff79c6',
 }
 
 export function attackColor(type) {
