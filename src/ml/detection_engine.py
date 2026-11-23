@@ -181,13 +181,15 @@ class DetectionEngine:
             except Exception as e:
                 logger.warning(f"Failed to read current.json: {e}")
 
-        # Enforce Safety Guard on Synthetic Models
-        is_demo_mode = os.environ.get("KOPO_DEMO_MODE", "true").lower() in ["true", "1", "yes"]
+        # Enforce Safety Guard on Synthetic Models (Default mode is STRICT / production)
+        is_demo_mode = os.environ.get("KOPO_DEMO_MODE", "false").lower() in ["true", "1", "yes"]
         if self.data_origin == "synthetic":
             if is_demo_mode:
                 logger.warning("DEMO NOTICE: Loading quarantined synthetic models for UI demonstration. Production benchmark requires real dataset run.")
             else:
-                raise RuntimeError("PRODUCTION INTEGRITY ERROR: Synthetic models rejected in non-demo mode. Activate a clean benchmark run in current.json.")
+                logger.warning("STRICT PRODUCTION MODE: Synthetic models detected in current.json. Engine refusing to serve synthetic weights in production mode.")
+                self._loaded = False
+                return
 
         scaler_path = processed / "scaler.pkl"
         meta_path   = processed / "metadata.json"

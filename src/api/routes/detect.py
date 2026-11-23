@@ -18,9 +18,11 @@ async def detect(
     engine = request.app.state.engine
 
     if not engine.is_ready:
+        origin = getattr(engine, "data_origin", "unloaded")
+        run_id = getattr(engine, "active_run_id", "none")
         raise HTTPException(
             status_code=503,
-            detail="Detection engine not ready. Train models first.",
+            detail=f"Detection engine not ready. Active model run '{run_id}' has origin '{origin}'. Production strict mode requires a certified real benchmark run.",
         )
 
     raw_features = payload.features

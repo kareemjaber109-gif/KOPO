@@ -46,9 +46,12 @@ async def health():
     from src.ml.detection_engine import DetectionEngine
     engine = DetectionEngine.get_instance()
     return {
-        "status":  "ok" if engine.is_ready else "degraded",
-        "version": settings.app_version,
-        "engine":  engine.status(),
+        "status":        "ok" if engine.is_ready else "degraded",
+        "version":       settings.app_version,
+        "model_origin":  getattr(engine, "data_origin", "unloaded"),
+        "run_id":        getattr(engine, "active_run_id", "none"),
+        "is_ready":      engine.is_ready,
+        "engine":        engine.status(),
     }
 
 

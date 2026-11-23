@@ -15,6 +15,7 @@ import { AlertTriangle } from 'lucide-react'
 
 export default function App() {
   const [engineReady, setEngineReady] = useState(false)
+  const [modelMeta, setModelMeta] = useState({ origin: 'unknown', runId: 'none' })
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('kopo_theme') || 'dark'
   })
@@ -32,8 +33,13 @@ export default function App() {
     try {
       const data = await api.health()
       setEngineReady(data.status === 'ok')
+      setModelMeta({
+        origin: data.model_origin || 'unknown',
+        runId: data.run_id || 'none'
+      })
     } catch {
       setEngineReady(false)
+      setModelMeta({ origin: 'offline', runId: 'none' })
     }
   }, [])
 
@@ -72,6 +78,31 @@ export default function App() {
               }}>
                 <AlertTriangle size={13} />
                 <span>MOCK ADAPTER ACTIVE (VITE_USE_MOCK=true) · Running on realistic seeded telemetry dataset</span>
+              </div>
+            )}
+
+            {/* Quarantined Synthetic Run Banner when live backend is running synthetic weights */}
+            {!isMock && modelMeta.origin === 'synthetic' && (
+              <div style={{
+                background: 'rgba(255, 71, 87, 0.15)',
+                borderBottom: '1px solid rgba(255, 71, 87, 0.4)',
+                color: 'var(--accent-red)',
+                padding: '6px 20px',
+                fontSize: 11,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                position: 'sticky',
+                top: 0,
+                zIndex: 50,
+                backdropFilter: 'blur(4px)'
+              }}>
+                <AlertTriangle size={13} />
+                <span>
+                  QUARANTINED SYNTHETIC RUN ACTIVE [{modelMeta.runId}] · Model Origin: SYNTHETIC (Demo Only — Strict Real Benchmark Run Pending)
+                </span>
               </div>
             )}
 
