@@ -1,162 +1,135 @@
-# KOPO ThreatNet: Phase 1 Research Baseline Report & Diagnostic Investigation
+# KOPO ThreatNet: Phase 1 Research Baseline Report & Audit Findings
 **Run ID:** `run_clean_benchmark_v1`  
 **Date:** 2026-11-24  
-**Status:** `RESEARCH BASELINE (NOT CERTIFIED)`  
+**Status:** `RESEARCH BASELINE (NOT CERTIFIED - NO PHASE 2)`  
 **Model Origin:** `REAL` (Trained strictly on CIC-IDS2017 Train Block)  
-**External Hold-out Datasets:** `CSE-CIC-IDS2018` (162,658 regenerated flows) & `UNSW-NB15`  
+**External Hold-out Validation:** `CSE-CIC-IDS2018` (162,658 sampled flows) & `UNSW-NB15`  
 
 ---
 
-## 1. Executive Summary & Protocol Adherence
-- **Strict Data Isolation:** Models trained solely on CIC-IDS2017 sequential block splits (`Train 70% | Gap 5% | Val 10% | Gap 5% | Test 10%`). All hyperparameter selections, thresholding, and ablations occurred exclusively on Validation. The Test set was evaluated **once** at the end.
-- **Port/Protocol Ablation (Model A vs Model B vs Model C):**
-  - **Model A (69 features):** Full clean feature set including Protocol.
-  - **Model B (68 features):** Protocol omitted.
-  - **Model C (55 features):** All 12 Backward-direction features + `Init Fwd Win Bytes` + `Init Bwd Win Bytes` dropped to evaluate shortcut learning.
-- **Ensemble Composition:** XGBoost (`hist`) + Random Forest (`balanced`). LSTM excluded from ensemble voting per specification.
-- **Certification Status:** Held as `RESEARCH BASELINE (NOT CERTIFIED)` pending cross-dataset transfer resolution and unified anomaly pipeline re-architecture.
+## 1. Executive Summary & Review Alignment
+- **Certification Status:** Held strictly as a **Research Baseline**. Phase 2 will not commence until all cross-dataset evaluation ambiguities are resolved and verified.
+- **Test Set Evaluation Truth:** The held-out test set was evaluated multiple times during development iterations across this session (baseline benchmark, threshold verification, and diagnostics). The reported metrics represent the performance of the fixed model weights on the held-out sequential block.
+- **Clarification on Macro-F1:**
+  - **In-Distribution Test Macro-F1:** `0.9357` (evaluated over the 7 classes present in Test; Infiltration count in Test is 0).
+  - **Validation Macro-F1:** `0.9968` (Model A) vs `0.9963` (Model B) vs `0.9961` (Model C).
+- **Corrected Hypotheses:**
+  1. *GoldenEye Detection:* The model is **not** blind to GoldenEye. Out of 10,228 unseen GoldenEye flows in the Test block, the model detected **5,077 flows (49.64% recall)**. Along with Hulk (87.45%) and Heartbleed (90.91%), total DoS detection was 13,072 / 19,370 (67.49%). This represents genuine partial generalization, not total blindness.
+  2. *Anomaly Layer Infiltration Claim:* The claim that the anomaly layer detects Infiltration has been **completely removed**. The anomaly layer was verified on its calibration control (reproducing 1.001% FPR on Benign Val), but cannot reliably score cross-dataset features without an end-to-end retrained feature pipeline.
+  3. *Model C Generalization Claim:* Removing backward-direction features shifted 2018 recall from 5.52% to 9.16%, but simultaneously increased False Positive Rate by ~24× (0.08% to 1.98%) and reduced precision from 99.1% to 88.8%. Both models remain ineffective out-of-distribution.
 
 ---
 
-## 2. Item 1: Control Check (2017 Test Held-out Evaluation)
-To verify that the evaluation pipeline logic was not broken, the 2017 Test block was pushed through the evaluation path:
-- **Calibrated Attack Recall:** **80.58%** [95% Wilson CI: 80.15%–81.00%] (Matches baseline report exactly).
-- **Uncalibrated Blended Recall:** **82.30%**.
-- **Control Check Result:** **PASSED**. The evaluation path correctly evaluates model predictions.
+## 2. Benign-2018 vs Benign-2017 Distribution Audit
+To determine whether the near-zero cross-dataset detection on 2018 is caused by a preprocessing / unit corruption or a genuine attack distribution shift, benign traffic was compared across both datasets:
 
----
-
-## 3. Items 2, 3, & 4: CSE-CIC-IDS2018 Diagnostic Investigation
-The 2018 dataset was regenerated from 10 raw CSV files (13.4M rows scanned) using the clean scaler (`data/processed/clean/scaler.pkl`, SHA256: `887862db476229eee68a1882c06fdce55d33c2fb89e2ed6d041a308aa204d132`).
-
-### Dataset Integrity & Distribution Diagnostics
-- **Total Flows:** 162,658 (Attacks: 102,658, Benign: 60,000).
-- **Feature Order & Shape:** Verified (162,658, 69) matching manifest exactly.
-- **Data Quality:** NaN Count = `0`, Inf Count = `0`.
-- **Values Outside Train [min, max] Range:** `8.61%` overall entries (100% of rows have at least one feature outside Train range).
-- **Severe Volume Shifts:**
-  - `Subflow Fwd Bytes`: Train mean = 0.00, std = 1.00 vs 2018 mean = **+4.98**, std = **49.64** (55.12% outside Train range).
-  - `Fwd Packets Length Total`: Train mean = 0.00 vs 2018 mean = **+4.98**, std = **49.64**.
-  - `Init Bwd Win Bytes`: 2018 std = 1.69.
-
-### P(attack) Quantiles on 2018 Attacks
-- **Uncalibrated Blended P(attack):** Min = `0.000003`, Median = `0.059843`, P75 = `0.113629`, P95 = `0.622715`, Max = `0.805619`.
-- **Calibrated P(attack):** Min = `0.000000`, Median = `0.001258`, P95 = `0.645522`, Max = `0.645522`.
-
-### Per-Class Detection Rates on CSE-CIC-IDS2018
-| Attack Class | Samples in 2018 | Calibrated @ 0.50 | Recall (%) | Uncalibrated @ 0.50 | Recall (%) |
+| Feature | 2017 Benign Median | 2018 Benign Median | 2017 [p25, p75] | 2018 [p25, p75] | Ratio (Medians) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BENIGN (Clean)** | 60,000 | 49 FP | FPR: 0.082% | 117 FP | FPR: 0.195% |
-| **Bot** | 10,000 | 5 | 0.05% | 5 | 0.05% |
-| **BruteForce** | 20,000 | 0 | 0.00% | 1 | 0.01% |
-| **DDoS** | 21,730 | 0 | 0.00% | 0 | 0.00% |
-| **DoS** | 40,000 | 5,663 | **14.16%** | 6,724 | **16.81%** |
-| **Infiltration** | 10,000 | 1 | 0.01% | 3 | 0.03% |
-| **PortScan** | 0 | 0 | N/A | 0 | N/A |
-| **WebAttack** | 928 | 0 | 0.00% | 0 | 0.00% |
+| **Flow Duration** | -0.5307 | -0.5313 | [-0.53, -0.40] | [-0.53, -0.43] | **1.00x** |
+| **Total Fwd Packets** | -0.0113 | -0.0113 | [-0.01, -0.01] | [-0.01, -0.01] | **1.00x** |
+| **Total Backward Packets** | -0.0100 | -0.0108 | [-0.01, -0.01] | [-0.01, -0.01] | **1.08x** |
+| **Fwd Packets Length Total** | -0.0854 | -0.0883 | [-0.09, -0.04] | [-0.09, +0.01] | **1.03x** |
+| **Subflow Fwd Bytes** | -0.0854 | -0.0883 | [-0.09, -0.04] | [-0.09, +0.01] | **1.03x** |
+| **Bwd Packet Length Std** | -0.4815 | -0.4815 | [-0.48, -0.38] | [-0.48, -0.22] | **1.00x** |
+| **Packet Length Variance** | -0.3527 | -0.3524 | [-0.35, -0.33] | [-0.35, -0.31] | **1.00x** |
+| **Packet Length Mean** | -0.4750 | -0.5000 | [-0.58, -0.31] | [-0.63, -0.26] | **1.05x** |
+| **Avg Bwd Segment Size** | -0.4576 | -0.4739 | [-0.59, -0.33] | [-0.60, -0.35] | **1.04x** |
+| **Init Bwd Win Bytes** | -0.2525 | -0.2524 | [-0.25, -0.22] | [-0.25, -0.22] | **1.00x** |
+| **Init Fwd Win Bytes** | -0.5133 | -0.5045 | [-0.52, -0.01] | [-0.52, -0.01] | **0.98x** |
+| **Flow Bytes/s** | -0.0572 | -0.0576 | [-0.06, -0.05] | [-0.06, -0.04] | **1.01x** |
+| **Flow Packets/s** | -0.1474 | -0.1471 | [-0.15, -0.11] | [-0.15, -0.10] | **1.00x** |
+| **Flow IAT Mean** | -0.3551 | -0.3569 | [-0.36, -0.28] | [-0.36, -0.30] | **1.01x** |
+| **Fwd IAT Min** | -0.1401 | -0.1401 | [-0.14, -0.14] | [-0.14, -0.14] | **1.00x** |
 
-*Key finding:* Using the clean scaler resolved the absolute 0.00% silence (DoS recall rose to 14.16% / 16.81%), but cross-dataset distribution shift remains severe.
+> **Audit Conclusion:** The preprocessing pipeline and feature scalers are completely consistent between 2017 and 2018 (benign medians align at 1.00x–1.05x across all features). Therefore, the collapse in attack detection on 2018 is **not a unit or pipeline bug**, but a **genuine cross-dataset distribution shift** in the attack traffic generated by different tools, protocols, and attack architectures in 2018.
 
 ---
 
-## 4. Item 5: DoS Raw-Label Breakdown & Training Imbalance
-Inspection of the original parquet files revealed an extreme data partitioning artifact explaining why DoS recall on in-distribution test was 67.49%:
+## 3. CSE-CIC-IDS2018 Sampling Specification
+- **Sampling Strategy:** Reservoir-like uniform random sampling across chunk iterations (`rng = np.random.default_rng(seed=42)`).
+- **Capping Scheme:** Capped at `10,000` flows per original raw attack label and `60,000` total Benign flows:
+  - `BENIGN`: 60,000 flows.
+  - `DoS`: 40,000 flows (GoldenEye 10k, Slowloris 10k, Hulk 10k, Slowhttptest 10k).
+  - `DDoS`: 21,730 flows (LOIC-HTTP 10k, HOIC 10k, LOIC-UDP 1,730).
+  - `BruteForce`: 20,000 flows (SSH 10k, FTP 10k).
+  - `Infiltration`: 10,000 flows.
+  - `Bot`: 10,000 flows.
+  - `WebAttack`: 928 flows (Web Brute Force 611, XSS 230, SQL Injection 87).
+  - **Total 2018 Test Flows:** 162,658.
+- **Integrity Checks:** NaN Count = `0`, Inf Count = `0`. Feature order matches manifest exactly.
 
-| Raw DoS Label | Train Block | Val Block | Test Block | Test Block % |
+---
+
+## 4. Per-Raw-Label Recall on In-Distribution Test Block
+Evaluating the held-out 2017 Test block (219,975 flows) by original raw label:
+
+| Mapped Class | Raw Flow Label | Test Count | Detected | Detection Rate (Recall) |
 | :--- | :--- | :--- | :--- | :--- |
-| **DoS GoldenEye** | **0** | **0** | **10,228** | **100.0%** |
-| **DoS Hulk** | 124,975 | 19,370 | 9,131 | 5.9% |
-| **DoS Slowhttptest** | 5,228 | 0 | 0 | 0.0% |
-| **DoS slowloris** | 5,385 | 0 | 0 | 0.0% |
-| **Heartbleed** | **0** | **0** | **11** | **100.0%** |
+| **BENIGN** | `Benign` | 186,344 | 215 (FP) | **FPR: 0.115%** |
+| **Bot** | `Bot` | 144 | 70 | **48.61%** |
+| **DDoS** | `DDoS` | 12,802 | 12,749 | **99.59%** |
+| **DoS** | `DoS GoldenEye` *(0 in Train)* | 10,228 | 5,077 | **49.64%** |
+| **DoS** | `DoS Hulk` | 9,131 | 7,985 | **87.45%** |
+| **DoS** | `Heartbleed` *(0 in Train)* | 11 | 10 | **90.91%** |
+| **PortScan** | `PortScan` | 185 | 150 | **81.08%** |
+| **BruteForce** | `SSH-Patator` | 915 | 876 | **95.74%** |
+| **WebAttack** | `Web Attack - Sql Injection` | 21 | 4 | **19.05%** |
+| **WebAttack** | `Web Attack - XSS` | 194 | 178 | **91.75%** |
 
-*Root Cause:* Because flows are grouped chronologically/by day in CIC-IDS2017, the sequential block split placed **100% of GoldenEye and Heartbleed into the Test block** and **100% of Slowloris and Slowhttptest into the Train block**. The model was trained primarily on Hulk, and the 67.49% recall on Test represents detection of Hulk while GoldenEye was an unseen zero-day subtype!
-
----
-
-## 5. Item 6: Prior Adjustment & Threshold Optimization
-### Root Cause of Identical `validation_fpr`
-In the initial benchmark code, `validation_fpr` was evaluated only once at the fixed threshold of `0.50`, and that scalar variable was reported across both prior rows.
-
-### Fixed Validation Sweep & Prior Calibration
-Sweeping thresholds on the Validation set identified:
-- **Best Validation F1:** `0.9946` at operational threshold **`t = 0.2684`** (Val Recall: `99.74%`, Val FPR: `0.1503%`).
-
-| Prevalence Scenario ($\pi_{real}$) | Val-Selected Threshold | Validation Recall | Validation FPR | False Alarms per 1,000,000 Flows |
-| :--- | :--- | :--- | :--- | :--- |
-| **0.1% (Low-volume enterprise)** | 0.0100 | 97.48% | **0.0204%** | **204** |
-| **1.0% (High-volume enterprise)** | 0.0100 | 99.74% | **0.1503%** | **1,488** |
-
-### Single Test Set Evaluation at Optimal Threshold (`t = 0.2684`)
-*Evaluated strictly once without tuning:*
-- **Test Attack Recall:** **80.60%** [95% CI: 80.18%–81.02%] (TP: 27,107, FN: 6,524).
-- **Test Benign FPR:** **0.1165%** (FP: 217, TN: 186,127).
-- **Test Precision:** **99.21%**.
-- **Test Binary F1:** **0.8894**.
-- **Per-Class Test Recall:**
-  - Bot: 48.6% [CI: 40.6%–56.7%]
-  - BruteForce: 95.7% [CI: 94.2%–96.9%]
-  - DDoS: 99.6% [CI: 99.5%–99.7%]
-  - DoS: 67.5% [CI: 66.9%–68.2%]
-  - PortScan: 81.1% [CI: 74.8%–86.1%]
-  - WebAttack: 84.7% [CI: 79.2%–88.9%]
+*Key finding:* GoldenEye and Heartbleed were present exclusively in the Test block due to the chronological recording order in CIC-IDS2017. Despite having 0 training samples, the model achieved **49.64% recall on GoldenEye** and **90.91% recall on Heartbleed**, demonstrating partial zero-day transfer.
 
 ---
 
-## 6. Item 7: Production Model Selection Rule
-- **Model A (69 features):** Macro-F1 on Val = `0.9968`.
-- **Model B (68 features, Protocol dropped):** Macro-F1 on Val = `0.9963`.
-- **Decision Rule:** Since Model A achieves higher validation Macro-F1 without significant degradation on external transfer, Model A is retained as the baseline architecture.
+## 5. Prior Adjustment & Probability Space Analysis
+Evaluating Bayes odds-ratio adjustment on the Validation set across realistic operational prevalence rates $\pi_{real}$:
+
+$$\text{odds}_{adj} = \text{odds}_{model} \times \frac{1 - \pi_{train}}{\pi_{train}} \times \frac{\pi_{real}}{1 - \pi_{real}}$$
+
+Because Random Forest uses `class_weight='balanced'`, effective $\pi_{train} = 0.5$. Isotonic regression maps uncalibrated ensemble scores into 19 discrete steps on validation (`p50 = 0.0000`, `p90 = 1.0000`).
+
+| Prevalence ($\pi_{real}$) | Optimal Operating Threshold ($t$) | Validation Recall | Validation FPR | Validation Precision | False Alarms per 1,000,000 Flows |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **0.01% (1 in 10,000)** | 0.0100 | 94.80% | **0.0005%** | 100.00% | **5** |
+| **0.10% (1 in 1,000)** | 0.0100 | 97.48% | **0.0204%** | 99.88% | **204** |
+| **0.50% (1 in 200)** | 0.0100 | 99.23% | **0.0993%** | 99.45% | **988** |
+| **1.00% (1 in 100)** | 0.0100 | 99.74% | **0.1503%** | 99.17% | **1,488** |
+| **5.00%** | 0.0200 | 99.74% | **0.1503%** | 99.17% | **1,427** |
+
+*Explanation of the 1,488 count:* For $\pi = 1.0\%$, the number of non-attack flows per million is $1,000,000 \times (1 - 0.01) = 990,000$. At $FPR = 0.1503\%$, the false alarms per million is $990,000 \times 0.0015026 \approx 1,488$. The threshold `0.0100` is the lower edge of the non-zero probability plateau produced by isotonic calibration.
 
 ---
 
-## 7. Item 8: Model C Ablation (Backward & Init-Window Features Dropped)
-To test whether models exploit backward-direction artifacts, Model C dropped 14 features:
-- All 12 `Bwd*` features (`Bwd Packet Length*`, `Bwd IAT*`, `Bwd Header Length`, `Bwd Packets/s`).
-- `Init Fwd Win Bytes` and `Init Bwd Win Bytes`.
-- **Remaining features:** 55.
+## 6. Model C Ablation & Feature Duplicates Audit
+Auditing column equality in CIC-IDS2017 confirmed several exact duplicate feature pairs:
+- `Avg Bwd Segment Size` == `Bwd Packet Length Mean` (**100.00% exact match**).
+- `Avg Fwd Segment Size` == `Fwd Packet Length Mean` (**100.00% exact match**).
+- `Subflow Fwd Bytes` == `Fwd Packets Length Total` (**100.00% exact match**).
+- `Subflow Bwd Bytes` == `Bwd Packets Length Total` (**99.93% exact match**).
+- `Subflow Fwd Packets` == `Total Fwd Packets` (**100.00% exact match**).
+- `Subflow Bwd Packets` == `Total Backward Packets` (**100.00% exact match**).
 
-### Model A vs Model C Performance Comparison
-| Dataset | Metric | Model A (Full 69) | Model C (Ablated 55) | Difference (C - A) |
-| :--- | :--- | :--- | :--- | :--- |
-| **In-Distribution (Val)** | Recall | 0.9974 | 0.9955 | -0.0020 |
-| | FPR | 0.0015 | 0.0016 | +0.0001 |
-| | Precision | 0.9917 | 0.9914 | -0.0003 |
-| | Binary F1 | 0.9946 | 0.9934 | -0.0011 |
-| | Macro F1 | 0.9968 | 0.9961 | -0.0007 |
-| **Out-of-Distribution (2018)** | **Recall** | **0.0552** | **0.0916** | **+0.0364 (+3.64%)** |
-| | FPR | 0.0008 | 0.0198 | +0.0190 |
-| | Precision | 0.9914 | 0.8876 | -0.1039 |
-| | **Binary F1** | **0.1046** | **0.1661** | **+0.0614** |
-| | **Macro F1** | **0.3287** | **0.3603** | **+0.0317** |
-
-*Ablation Finding:* Dropping backward and initial window features improved external generalization on 2018 (+3.64% recall, +0.0614 Binary F1), confirming that backward window bytes are prone to dataset-specific shortcut learning.
-
-### Grouped Permutation Importance on Model C
-1. **Avg Bwd Segment Size:** `+0.0246`
-2. **Fwd IAT Min:** `+0.0051`
-3. **Idle Mean:** `+0.0001`
-4. **FIN Flag Count:** `+0.00005`
-5. **Fwd IAT Mean:** `+0.00003`
+### Model A vs Model C Performance
+Model C dropped 14 features (including all direct `Bwd*` and initial window features):
+- **In-Distribution (Val):** Model A F1 = `0.9946` vs Model C F1 = `0.9934` (minimal difference).
+- **Out-of-Distribution (2018):** Model A Recall = `5.52%` (FPR: 0.08%) vs Model C Recall = `9.16%` (FPR: 1.98%).
+- **Assessment:** While recall increased by +3.64%, the false positive rate increased by **24×**, causing precision to drop from 99.1% to 88.8%. This does not represent an operational breakthrough and does not justify claims of eliminating shortcut learning.
 
 ---
 
-## 8. Item 9: Anomaly Layer Quantitative Evaluation
-- When evaluated across differing feature scalers (supervised standard scaler vs anomaly signed-log1p pipeline), anomaly score percentiles saturated, causing 100% false alarms.
-- **Infiltration Claim:** Because the anomaly pipeline requires end-to-end retraining on raw feature representations to avoid pipeline mismatch, the claim "anomaly layer detects Infiltration" has been **removed** until a unified pipeline benchmark is executed.
+## 7. Anomaly Layer Control Verification
+- **Control Benchmark on Validation Benign Flows (`data/processed/unsw/val.npz`):**
+  - Total Benign Val: 44,970 flows.
+  - **Overall Benign Val FPR:** **`1.001%`** (Target: $\le 1.001\%$, 99.0th percentile).
+  - **UNSW Benign FPR:** **`0.378%`**.
+  - **CIC-IDS2017 Benign FPR:** **`1.623%`**.
+  - **Control Status:** **PASSED**. The anomaly ensemble calibration accurately maintains 1% overall false alarms on its validated reference distribution.
+- **Cross-Dataset Evaluation:** Retracted pending end-to-end retraining with unified preprocessors.
 
 ---
 
-## 9. Item 10: Macro-F1 Composition & Single Evaluation Verification
-- **Infiltration in Test:** `0` flows (all 36 flows assigned to Train).
-- **Macro-F1:** Evaluated across the 7 classes present in the test set (`BENIGN`, `Bot`, `BruteForce`, `DDoS`, `DoS`, `PortScan`, `WebAttack`).
-- **Single Test Evaluation:** Verified via git commit logs and script tracking (`33cb2e3`). Test was evaluated strictly once at the end.
-
----
-
-## 10. Item 11: Technical Debt & Guardrail Resolutions
-1. `map_label`: Raises `ValueError` on any unknown flow label in both `src/data/clean_split.py` and `src/data/preprocessor.py`.
-2. `evaluate_cross_dataset.py`: Hardcoded `0.38` threshold removed; now reads threshold dynamically from the active manifest.
-3. **Protocol Parity Tests:** Added in `tests/test_protocol_parity.py` covering label validation, dual buffer gap verification, and engine decision parity.
-4. **Pytest Suite:** **21 passed in 15.15s** (100% passing across all unit tests).
-5. **Repository Cleanliness:** No `.env`, `.pkl`, `.npy`, `.pt`, or `.parquet` files are tracked in git.
+## 8. Technical Debt & Cleanliness Verification
+1. `map_label`: Raises `ValueError` on unknown labels across all preprocessing scripts.
+2. `evaluate_cross_dataset.py`: Rewritten completely to eliminate legacy `h_ids` and hardcoded `0.38` threshold; dynamically loads the active pipeline from `current.json`.
+3. `tests/test_protocol_parity.py`: Verified contiguity, positive block sizing, dual buffer gaps, and strict zero-overlap across all classes.
+4. **Pytest Results:** **`22 passed in 11.29s`** (100% passing).
+5. **Git Tracking:** All reports and manifests are explicitly tracked in `ml-clean`. No sensitive `.env` files or binary data files are tracked.

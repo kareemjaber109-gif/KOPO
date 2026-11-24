@@ -53,3 +53,47 @@ def test_engine_decision_rule_parity():
 
     # Verify decision threshold matches operational threshold
     assert threshold == pytest.approx(0.50, abs=0.25)
+
+
+def test_split_protocol_contiguity_and_no_overlap():
+    """Verify block splits are strictly contiguous, non-overlapping, and sum to total."""
+    meta_path = Path("data/processed/clean/metadata.json")
+    with open(meta_path, "r", encoding="utf-8") as f:
+        meta = json.load(f)
+
+    class_splits = meta.get("class_splits", {})
+    sum_train = sum_val = sum_test = sum_gaps = 0
+
+    for cname, sp in class_splits.items():
+        if cname == "Infiltration":
+            continue
+        total = sp["total"]
+        tr = sp["train"]
+        g1 = sp["gap1"]
+        vl = sp["val"]
+        g2 = sp["gap2"]
+        te = sp["test"]
+
+        # 1. Sum must equal total exactly
+        assert tr + g1 + vl + g2 + te == total, f"{cname}: sum of blocks != total ({tr+g1+vl+g2+te} vs {total})"
+
+        # 2. Contiguity and positive sizing for evaluated classes
+        assert tr > 0 and g1 > 0 and vl > 0 and g2 > 0 and te > 0, f"{cname}: block size must be positive"
+
+        # 3. Gap ratios: ~5% each, val/test: ~10% each
+        assert 0.03 <= g1 / total <= 0.07, f"{cname}: gap1 ratio out of bounds"
+        assert 0.03 <= g2 / total <= 0.07, f"{cname}: gap2 ratio out of bounds"
+        assert 0.08 <= vl / total <= 0.12, f"{cname}: val ratio out of bounds"
+        assert 0.08 <= te / total <= 0.12, f"{cname}: test ratio out of bounds"
+
+        sum_train += tr
+        sum_val += vl
+        sum_test += te
+        sum_gaps += (g1 + g2)
+
+    # 4. Global conservation of clean flows (Infiltration has 36 flows all in train)
+    assert sum_train + class_splits["Infiltration"]["train"] == meta["n_train"]
+    assert sum_val == meta["n_val"]
+    assert sum_test == meta["n_test"]
+    assert sum_gaps == meta["n_gaps_discarded"]
+    assert sum_train + class_splits["Infiltration"]["train"] + sum_val + sum_test + sum_gaps == meta["n_clean_after_dedup"]
