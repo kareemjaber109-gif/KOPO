@@ -1,0 +1,223 @@
+{
+  "run_id": "run_clean_benchmark_v1",
+  "data_origin": "real",
+  "certified": false,
+  "run_type": "research_baseline",
+  "created_at": "2026-11-24 00:51:22",
+  "training_dataset": "CIC-IDS2017 Clean Benchmark",
+  "components": [
+    "random_forest.pkl",
+    "xgboost.pkl",
+    "scaler.pkl",
+    "isotonic_calibrator.pkl"
+  ],
+  "models_included": [
+    "RandomForest",
+    "XGBoost",
+    "IsotonicCalibrator"
+  ],
+  "excluded_models": [
+    "LSTM (excluded until sequence flow model is built)"
+  ],
+  "n_features": 69,
+  "feature_columns": [
+    "Protocol",
+    "Flow Duration",
+    "Total Fwd Packets",
+    "Total Backward Packets",
+    "Fwd Packets Length Total",
+    "Bwd Packets Length Total",
+    "Fwd Packet Length Max",
+    "Fwd Packet Length Min",
+    "Fwd Packet Length Mean",
+    "Fwd Packet Length Std",
+    "Bwd Packet Length Max",
+    "Bwd Packet Length Min",
+    "Bwd Packet Length Mean",
+    "Bwd Packet Length Std",
+    "Flow Bytes/s",
+    "Flow Packets/s",
+    "Flow IAT Mean",
+    "Flow IAT Std",
+    "Flow IAT Max",
+    "Flow IAT Min",
+    "Fwd IAT Total",
+    "Fwd IAT Mean",
+    "Fwd IAT Std",
+    "Fwd IAT Max",
+    "Fwd IAT Min",
+    "Bwd IAT Total",
+    "Bwd IAT Mean",
+    "Bwd IAT Std",
+    "Bwd IAT Max",
+    "Bwd IAT Min",
+    "Fwd PSH Flags",
+    "Fwd URG Flags",
+    "Fwd Header Length",
+    "Bwd Header Length",
+    "Fwd Packets/s",
+    "Bwd Packets/s",
+    "Packet Length Min",
+    "Packet Length Max",
+    "Packet Length Mean",
+    "Packet Length Std",
+    "Packet Length Variance",
+    "FIN Flag Count",
+    "SYN Flag Count",
+    "RST Flag Count",
+    "PSH Flag Count",
+    "ACK Flag Count",
+    "URG Flag Count",
+    "CWE Flag Count",
+    "ECE Flag Count",
+    "Down/Up Ratio",
+    "Avg Packet Size",
+    "Avg Fwd Segment Size",
+    "Avg Bwd Segment Size",
+    "Subflow Fwd Packets",
+    "Subflow Fwd Bytes",
+    "Subflow Bwd Packets",
+    "Subflow Bwd Bytes",
+    "Init Fwd Win Bytes",
+    "Init Bwd Win Bytes",
+    "Fwd Act Data Packets",
+    "Fwd Seg Size Min",
+    "Active Mean",
+    "Active Std",
+    "Active Max",
+    "Active Min",
+    "Idle Mean",
+    "Idle Std",
+    "Idle Max",
+    "Idle Min"
+  ],
+  "class_names": [
+    "BENIGN",
+    "Bot",
+    "BruteForce",
+    "DDoS",
+    "DoS",
+    "Infiltration",
+    "PortScan",
+    "WebAttack"
+  ],
+  "decision_threshold": 0.5,
+  "test_metrics": {
+    "accuracy": 0.9693283327650869,
+    "f1_binary": 0.8892936253999508,
+    "f1_macro": 0.9357458747176268,
+    "recall_tpr": 0.8057744343016859,
+    "recall_ci_95": [
+      0.801511577995214,
+      0.8099674451820833
+    ],
+    "benign_fpr": 0.0011537801056111278,
+    "precision": 0.9921285787508237,
+    "tp": 27099,
+    "fp": 215,
+    "tn": 186129,
+    "fn": 6532
+  },
+  "test_per_class": {
+    "BENIGN": {
+      "count": 186344,
+      "correct": 186129,
+      "fpr": 0.0011537801056111278,
+      "recall": 0.9988462198943888
+    },
+    "Bot": {
+      "count": 144,
+      "detected": 70,
+      "recall": 0.4861111111111111,
+      "recall_ci_95": [
+        0.4059050827315591,
+        0.5670389072001715
+      ]
+    },
+    "BruteForce": {
+      "count": 915,
+      "detected": 876,
+      "recall": 0.9573770491803278,
+      "recall_ci_95": [
+        0.9422641945028766,
+        0.9686655332643713
+      ]
+    },
+    "DDoS": {
+      "count": 12802,
+      "detected": 12749,
+      "recall": 0.9958600218715825,
+      "recall_ci_95": [
+        0.9945892758267486,
+        0.9968332746371166
+      ]
+    },
+    "DoS": {
+      "count": 19370,
+      "detected": 13072,
+      "recall": 0.6748580278781621,
+      "recall_ci_95": [
+        0.668227230795879,
+        0.6814194830154743
+      ]
+    },
+    "Infiltration": {
+      "count": 0,
+      "detected": 0,
+      "recall": null
+    },
+    "PortScan": {
+      "count": 185,
+      "detected": 150,
+      "recall": 0.8108108108108109,
+      "recall_ci_95": [
+        0.7482707254459174,
+        0.8607057179752698
+      ]
+    },
+    "WebAttack": {
+      "count": 215,
+      "detected": 182,
+      "recall": 0.8465116279069768,
+      "recall_ci_95": [
+        0.7922862555594934,
+        0.8885719363099942
+      ]
+    }
+  },
+  "prior_adjustments": {
+    "pi_0.1%": {
+      "operational_prevalence": 0.001,
+      "validation_fpr": 0.000204,
+      "validation_recall": 0.9748,
+      "false_alarms_per_million_flows": 204,
+      "prior_adjusted_threshold": 0.0100
+    },
+    "pi_1.0%": {
+      "operational_prevalence": 0.01,
+      "validation_fpr": 0.001503,
+      "validation_recall": 0.9974,
+      "false_alarms_per_million_flows": 1488,
+      "prior_adjusted_threshold": 0.0100
+    }
+  },
+  "model_c_ablation": {
+    "run_dir": "data/models/run_model_c_ablation",
+    "dropped_features_count": 14,
+    "val_macro_f1": 0.9961,
+    "external_2018_macro_f1": 0.3603,
+    "external_2018_recall": 0.0916
+  },
+  "external_validation": {
+    "dataset": "CSE-CIC-IDS2018",
+    "model_A_macro_f1": 0.16532221392369828,
+    "model_B_macro_f1": 0.16531991357262546,
+    "model_A_benign_fpr": 0.00021666666666666666,
+    "model_B_benign_fpr": 0.00023333333333333333
+  },
+  "anomaly_layer": {
+    "unsw_benign_fpr": 0.0037359900373599006,
+    "cicids2017_benign_fpr": 0.016456146593132895,
+    "unsw_attack_recall": 0.08411701942879829
+  }
+}
