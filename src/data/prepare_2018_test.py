@@ -217,15 +217,32 @@ def extract_sampled_2018(
 
 
 def prepare_and_save_2018(raw_dir: Path, samples_per_label: int, benign_total: int,
-                          nan_policy: str, seed: int):
+                          nan_policy: str, seed: int,
+                          scaler_path: Path = None, meta_path: Path = None, encoder_path: Path = None):
     processed_dir = settings.data_processed_dir
 
+    if scaler_path is None:
+        clean_scaler = processed_dir / "clean" / "scaler.pkl"
+        scaler_path = clean_scaler if clean_scaler.exists() else processed_dir / "scaler.pkl"
+
+    if meta_path is None:
+        clean_meta = processed_dir / "clean" / "metadata.json"
+        meta_path = clean_meta if clean_meta.exists() else processed_dir / "metadata.json"
+
+    if encoder_path is None:
+        clean_le = processed_dir / "clean" / "label_encoder.pkl"
+        encoder_path = clean_le if clean_le.exists() else processed_dir / "label_encoder.pkl"
+
+    logger.info(f"Using Scaler path  : {scaler_path}")
+    logger.info(f"Using Metadata path: {meta_path}")
+    logger.info(f"Using Encoder path : {encoder_path}")
+
     # Load 2017 metadata, scaler, label_encoder
-    with open(processed_dir / "metadata.json", "r", encoding="utf-8") as f:
+    with open(meta_path, "r", encoding="utf-8") as f:
         meta = json.load(f)
-    with open(processed_dir / "scaler.pkl", "rb") as f:
+    with open(scaler_path, "rb") as f:
         scaler = pickle.load(f)
-    with open(processed_dir / "label_encoder.pkl", "rb") as f:
+    with open(encoder_path, "rb") as f:
         le = pickle.load(f)
 
     expected_features = meta["feature_columns"]
@@ -292,6 +309,11 @@ if __name__ == "__main__":
     ap.add_argument("--nan-policy", required=True, choices=["drop", "zero"],
                     help="What the 2017 preprocessor did with NaN/Inf rows: drop them, or fill with 0")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--scaler-path", type=Path, default=Path("data/processed/clean/scaler.pkl"),
+                    help="Path to scaler.pkl to transform 2018 features")
+    ap.add_argument("--meta-path", type=Path, default=Path("data/processed/clean/metadata.json"),
+                    help="Path to metadata.json")
     args = ap.parse_args()
     prepare_and_save_2018(args.raw_dir, args.samples_per_label, args.benign_total,
-                          args.nan_policy, args.seed)
+                          args.nan_policy, args.seed,
+                          scaler_path=args.scaler_path, meta_path=args.meta_path)

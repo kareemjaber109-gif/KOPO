@@ -34,7 +34,7 @@ def map_label(raw: str) -> str:
         return "WebAttack"
     if "infiltration" in s:
         return "Infiltration"
-    return "BENIGN"
+    raise ValueError(f"CRITICAL PROTOCOL VIOLATION: Unknown raw flow label: '{raw}'")
 
 
 def load_raw() -> pd.DataFrame:

@@ -128,11 +128,18 @@ def run_cross_dataset_evaluation():
     if_pred_17 = if_model.predict(X_test_17)
     if_pred_18 = if_model.predict(X_test_18)
 
-    # Hierarchical Two-Stage IDS
+    # Hierarchical Two-Stage IDS (Dynamic threshold from manifest if available)
+    import json
+    from pathlib import Path
+    manifest_p = Path("data/models/run_clean_benchmark_v1/manifest.json")
+    threshold = 0.50
+    if manifest_p.exists():
+        with open(manifest_p, "r", encoding="utf-8") as mf:
+            threshold = json.load(mf).get("decision_threshold", 0.50)
     from src.ml.models.hierarchical_ids import HierarchicalIDS
     h_ids = HierarchicalIDS(rf_model=rf, xgb_model=xgb, class_names=classes_17)
-    h_pred_17 = h_ids.predict_binary(X_test_17, attack_threshold=0.38)
-    h_pred_18 = h_ids.predict_binary(X_test_18, attack_threshold=0.38)
+    h_pred_17 = h_ids.predict_binary(X_test_17, attack_threshold=threshold)
+    h_pred_18 = h_ids.predict_binary(X_test_18, attack_threshold=threshold)
 
     # 5. Compute Unified Binary Benchmark Metrics
     models_predictions = {
