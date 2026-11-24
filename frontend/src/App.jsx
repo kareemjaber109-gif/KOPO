@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar.jsx'
 import Overview from './pages/Overview.jsx'
 import Alerts from './pages/Alerts.jsx'
+import Incidents from './pages/Incidents.jsx'
 import Detect from './pages/Detect.jsx'
 import Models from './pages/Models.jsx'
 import UnknownDrift from './pages/UnknownDrift.jsx'
@@ -15,7 +16,7 @@ import { AlertTriangle } from 'lucide-react'
 
 export default function App() {
   const [engineReady, setEngineReady] = useState(false)
-  const [modelMeta, setModelMeta] = useState({ origin: 'unknown', runId: 'none' })
+  const [modelMeta, setModelMeta] = useState({ origin: 'unknown', runId: 'none', certified: true, runType: 'unknown' })
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('kopo_theme') || 'dark'
   })
@@ -35,11 +36,13 @@ export default function App() {
       setEngineReady(data.status === 'ok')
       setModelMeta({
         origin: data.model_origin || 'unknown',
-        runId: data.run_id || 'none'
+        runId: data.run_id || 'none',
+        certified: data.certified ?? false,
+        runType: data.run_type || 'unknown'
       })
     } catch {
       setEngineReady(false)
-      setModelMeta({ origin: 'offline', runId: 'none' })
+      setModelMeta({ origin: 'offline', runId: 'none', certified: true, runType: 'offline' })
     }
   }, [])
 
@@ -106,10 +109,36 @@ export default function App() {
               </div>
             )}
 
+            {/* Research Baseline Disclosure Banner when real uncertified run is active */}
+            {!isMock && modelMeta.origin === 'real' && modelMeta.certified === false && (
+              <div style={{
+                background: 'rgba(240, 165, 0, 0.12)',
+                borderBottom: '1px solid rgba(240, 165, 0, 0.35)',
+                color: 'var(--accent-amber)',
+                padding: '5px 20px',
+                fontSize: 11,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                position: 'sticky',
+                top: 0,
+                zIndex: 50,
+                backdropFilter: 'blur(4px)'
+              }}>
+                <AlertTriangle size={13} />
+                <span>
+                  RESEARCH BASELINE [{modelMeta.runId}] · {modelMeta.runType} (Not Certified — CIC-IDS2017 In-Distribution Only; REVIEW Layer Active)
+                </span>
+              </div>
+            )}
+
             <Routes>
               <Route path="/"            element={<Overview />} />
               <Route path="/alerts"      element={<Alerts />} />
               <Route path="/alerts/:id"  element={<Alerts />} />
+              <Route path="/incidents"   element={<Incidents />} />
               <Route path="/detect"      element={<Detect />} />
               <Route path="/unknown"     element={<UnknownDrift />} />
               <Route path="/approvals"   element={<AgentApprovals />} />

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import {
   CheckCheck,
   ShieldAlert,
@@ -78,6 +78,8 @@ export default function Alerts() {
   const [copiedPayload, setCopiedPayload] = useState(false)
   const [copiedIp, setCopiedIp] = useState(null)
   const [analystNotes, setAnalystNotes] = useState('')
+  const [savedNotesList, setSavedNotesList] = useState([])
+  const [savingNote, setSavingNote] = useState(false)
   const [confidenceMin, setConfidenceMin] = useState(0)
 
   // Column visibility toggles
@@ -168,18 +170,40 @@ export default function Alerts() {
     return alerts.find(a => a.id === activeAlertId) || null
   }, [alerts, activeAlertId])
 
-  // Load analyst notes for active alert
+  // Load persisted analyst notes from backend DB for active alert
   useEffect(() => {
-    if (selectedAlert) {
-      const stored = localStorage.getItem(`kopo_notes_${selectedAlert.id}`) || ''
-      setAnalystNotes(stored)
+    let cancelled = false
+    async function loadNotes() {
+      if (!selectedAlert) {
+        setSavedNotesList([])
+        setAnalystNotes('')
+        return
+      }
+      try {
+        const notes = await api.getAlertNotes(selectedAlert.id)
+        if (!cancelled) setSavedNotesList(notes || [])
+      } catch {
+        if (!cancelled) setSavedNotesList([])
+      }
     }
-  }, [selectedAlert])
+    loadNotes()
+    return () => { cancelled = true }
+  }, [selectedAlert?.id])
 
-  function saveNotes(val) {
-    setAnalystNotes(val)
-    if (selectedAlert) {
-      localStorage.setItem(`kopo_notes_${selectedAlert.id}`, val)
+  async function submitAlertNote(e) {
+    e?.preventDefault()
+    if (!selectedAlert || !analystNotes.trim()) return
+    setSavingNote(true)
+    try {
+      const author = user ? `${user.name} (${user.role})` : 'SOC Analyst'
+      const created = await api.addAlertNote(selectedAlert.id, analystNotes.trim(), author)
+      setSavedNotesList(prev => [created, ...prev])
+      setAnalystNotes('')
+      showToast(`Note saved to Alert #${selectedAlert.id}`)
+    } catch (err) {
+      showToast(`Failed to save note: ${err.message}`)
+    } finally {
+      setSavingNote(false)
     }
   }
 
@@ -225,7 +249,7 @@ export default function Alerts() {
 
   // Single & Bulk Acknowledge
   async function ackSingle(id) {
-    await api.acknowledge(id)
+    await api.acknowledge(id, user?.name || 'SOC Analyst')
     showToast(`Incident #${id} acknowledged and marked as resolved`)
     refresh()
   }
@@ -233,8 +257,8 @@ export default function Alerts() {
   async function handleBulkAcknowledge() {
     const ids = Array.from(selectedIds)
     if (!ids.length) return
-    const res = await api.bulkAcknowledge(ids)
-    showToast(`Bulk resolved ${res.count} security incidents`)
+    const res = await api.bulkAcknowledge(ids, user?.name || 'SOC Analyst')
+    showToast(`Bulk resolved ${res.count ?? res.updated_count} security incidents`)
     setSelectedIds(new Set())
     refresh()
   }
@@ -861,8 +885,19 @@ export default function Alerts() {
               <div style={{ fontSize: 24, fontWeight: 900, color: attackColor(selectedAlert.attack_type) }}>
                 {selectedAlert.attack_type}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                Category: <b>{selectedAlert.attack_category || 'Threat Vector'}</b> · IP: <code style={{ color: 'var(--accent-cyan)' }}>{selectedAlert.source_ip || '185.220.101.5'}</code>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <span>Category: <b>{selectedAlert.attack_category || 'Threat Vector'}</b></span>
+                <span>· IP: <code style={{ color: 'var(--accent-cyan)' }}>{selectedAlert.source_ip || 'unattributed'}</code></span>
+                {selectedAlert.action && (
+                  <span style={{ padding: '1px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.08)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                    Action: {selectedAlert.action}
+                  </span>
+                )}
+                {selectedAlert.incident_id && (
+                  <Link to={`/incidents?id=${selectedAlert.incident_id}`} style={{ color: 'var(--accent-purple)', fontWeight: 700, textDecoration: 'none' }}>
+                    INC-{selectedAlert.incident_id} ↗
+                  </Link>
+                )}
               </div>
 
               {/* Threshold Gauge Indicator */}
@@ -881,31 +916,62 @@ export default function Alerts() {
               </div>
             </div>
 
-            {/* Top 5 Influential Features (Explainability) */}
-            <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px 16px' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Layers size={13} color="var(--accent-cyan)" />
-                <span>Top Influential Flow Features (SHAP / Tree Weights)</span>
-              </div>
+            {/* Real Detection Engine Telemetry & Feature Sample */}
+            {(() => {
+              let parsedRaw = {}
+              try {
+                parsedRaw = selectedAlert.raw_result ? JSON.parse(selectedAlert.raw_result) : {}
+              } catch {
+                parsedRaw = {}
+              }
+              const modelResults = parsedRaw.model_results || parsedRaw['Model Breakdown'] || null
+              const votes = parsedRaw.ensemble_votes || null
+              const featEntries = Object.entries(parsedRaw.input_features_sample || parsedRaw)
+                .filter(([k, v]) => typeof v === 'number' && k !== 'severity_score' && k !== 'confidence' && k !== 'anomaly_score')
+                .slice(0, 6)
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {[
-                  { name: 'Total Fwd Packets', weight: 0.38, val: '8,000 pkts' },
-                  { name: 'Flow Bytes/s', weight: 0.29, val: '23.36 MB/s' },
-                  { name: 'Flow Duration', weight: 0.16, val: '500 ms' },
-                  { name: 'SYN Flag Count', weight: 0.11, val: '1 (SYN sent)' },
-                  { name: 'ACK Flag Count', weight: 0.06, val: '50 (Unmatched)' },
-                ].map(feat => (
-                  <div key={feat.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>{feat.name}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{feat.val}</span>
-                      <span style={{ color: 'var(--accent-cyan)', fontSize: 10 }}>({(feat.weight * 100).toFixed(0)}%)</span>
-                    </div>
+              return (
+                <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px 16px' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 800, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Layers size={13} color="var(--accent-cyan)" />
+                      <span>Recorded Telemetry & Model Signals</span>
+                    </span>
+                    {votes && (
+                      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-amber)' }}>
+                        Votes: {votes.attack}/{votes.total}
+                      </span>
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
+
+                  {modelResults && typeof modelResults === 'object' && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: featEntries.length ? 10 : 0 }}>
+                      {Object.entries(modelResults).map(([mkey, mval]) => (
+                        <span key={mkey} style={{
+                          fontSize: 10, padding: '3px 8px', borderRadius: 4, fontFamily: 'var(--font-mono)',
+                          background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)'
+                        }}>
+                          {mkey.toUpperCase()}: {typeof mval === 'object' ? `${mval.label} (${((mval.confidence || 0) * 100).toFixed(0)}%)` : String(mval)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {featEntries.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {featEntries.map(([fname, fval]) => (
+                        <div key={fname} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{fname}</span>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{Number(fval).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>No numeric feature snapshot stored on this alert.</div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Formatted Raw Flow Payload Viewer */}
             <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
@@ -930,7 +996,14 @@ export default function Alerts() {
                 margin: 0, padding: 12, background: 'var(--code-bg)', color: '#e6edf3',
                 fontSize: 11, fontFamily: 'var(--font-mono)', maxHeight: 180, overflowY: 'auto', lineHeight: 1.5
               }}>
-                {selectedAlert.raw_result ? JSON.stringify(JSON.parse(selectedAlert.raw_result), null, 2) : 'No raw flow data recorded'}
+                {(() => {
+                  if (!selectedAlert.raw_result) return 'No raw flow data recorded'
+                  try {
+                    return JSON.stringify(JSON.parse(selectedAlert.raw_result), null, 2)
+                  } catch {
+                    return String(selectedAlert.raw_result)
+                  }
+                })()}
               </pre>
             </div>
 
@@ -962,24 +1035,50 @@ export default function Alerts() {
               )}
             </div>
 
-            {/* Analyst Case Notes Editor (Persisted locally) */}
+            {/* Analyst Case Notes Editor (Persisted in SQLite Database) */}
             <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px 16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>
                   Analyst Case Notes
                 </span>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Saved in Local Storage</span>
+                <span style={{ fontSize: 10, color: 'var(--accent-cyan)' }}>Persisted in DB ({savedNotesList.length})</span>
               </div>
-              <textarea
-                value={analystNotes}
-                onChange={e => saveNotes(e.target.value)}
-                placeholder="Enter triage notes, host investigation findings, or false-positive rationale..."
-                style={{
-                  width: '100%', minHeight: 70, background: 'var(--bg-base)', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)', padding: 8, color: 'var(--text-primary)',
-                  fontSize: 11, fontFamily: 'var(--font-mono)', outline: 'none', resize: 'vertical'
-                }}
-              />
+              <form onSubmit={submitAlertNote}>
+                <textarea
+                  value={analystNotes}
+                  onChange={e => setAnalystNotes(e.target.value)}
+                  placeholder="Enter triage notes, host investigation findings, or false-positive rationale..."
+                  style={{
+                    width: '100%', minHeight: 62, background: 'var(--bg-base)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)', padding: 8, color: 'var(--text-primary)',
+                    fontSize: 11, fontFamily: 'var(--font-mono)', outline: 'none', resize: 'vertical'
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={savingNote || !analystNotes.trim()}
+                  style={{
+                    marginTop: 6, padding: '6px 12px', background: 'var(--accent-cyan)', color: '#000',
+                    border: 'none', borderRadius: 'var(--radius-sm)', fontSize: 11, fontWeight: 800,
+                    cursor: savingNote || !analystNotes.trim() ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {savingNote ? 'Saving...' : 'Save Note to Database'}
+                </button>
+              </form>
+              {savedNotesList.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10, maxHeight: 140, overflowY: 'auto' }}>
+                  {savedNotesList.map(n => (
+                    <div key={n.id} style={{ padding: '6px 8px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: 11 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginBottom: 2 }}>
+                        <b style={{ color: 'var(--accent-cyan)' }}>{n.author}</b>
+                        <span>{formatDate(n.created_at)} {formatTs(n.created_at)}</span>
+                      </div>
+                      <div style={{ color: 'var(--text-primary)' }}>{n.note}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Quick Actions */}

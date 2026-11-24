@@ -124,19 +124,33 @@ export default function AgentApprovals() {
           </div>
         </div>
 
-        <button
-          onClick={loadApprovals}
-          disabled={loading}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-            color: 'var(--text-primary)', padding: '7px 14px', borderRadius: 'var(--radius-sm)',
-            fontSize: 12, cursor: 'pointer', fontWeight: 600
-          }}
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          <span>Refresh Queue</span>
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={async () => { await api.syncApprovals(); await loadApprovals() }}
+            disabled={loading}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'rgba(0, 212, 255, 0.12)', border: '1px solid var(--accent-cyan)',
+              color: 'var(--accent-cyan)', padding: '7px 14px', borderRadius: 'var(--radius-sm)',
+              fontSize: 12, cursor: 'pointer', fontWeight: 700
+            }}
+          >
+            <span>Sync From Alerts</span>
+          </button>
+          <button
+            onClick={loadApprovals}
+            disabled={loading}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+              color: 'var(--text-primary)', padding: '7px 14px', borderRadius: 'var(--radius-sm)',
+              fontSize: 12, cursor: 'pointer', fontWeight: 600
+            }}
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            <span>Refresh Queue</span>
+          </button>
+        </div>
       </div>
 
       {/* Success Notification */}

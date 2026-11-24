@@ -145,6 +145,7 @@ class DetectionEngine:
         self.class_names   = []
         self.active_run_id = "default"
         self.data_origin   = "real"
+        self.active_manifest = {}
         self._loaded       = False
 
     @classmethod
@@ -181,6 +182,14 @@ class DetectionEngine:
                 logger.info(f"Loaded active model pointer: '{self.active_run_id}' [origin: {self.data_origin}] from current.json")
             except Exception as e:
                 logger.warning(f"Failed to read current.json: {e}")
+
+        manifest_path = active_models_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    self.active_manifest = json.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to read active manifest.json: {e}")
 
         # Check independent anomaly model manifest
         anomaly_dir = active_models_dir / "anomaly"
@@ -748,10 +757,16 @@ class DetectionEngine:
         ])
 
     def status(self) -> dict:
+        manifest = getattr(self, "active_manifest", {}) or {}
         return {
             "loaded": self._loaded,
             "active_run_id": self.active_run_id,
             "data_origin": self.data_origin,
+            "certified": bool(manifest.get("certified", False)),
+            "run_type": manifest.get("run_type", "unknown"),
+            "training_dataset": manifest.get("training_dataset"),
+            "decision_threshold": manifest.get("decision_threshold", 0.5),
+            "excluded_models": manifest.get("excluded_models", []),
             "anomaly_origin": getattr(self, "anomaly_origin", "real"),
             "anomaly_ready": getattr(self, "anomaly_ready", False),
             "models": {

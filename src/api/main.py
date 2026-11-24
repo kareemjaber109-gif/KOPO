@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.utils.config import settings
 from src.utils.logger import logger
 from src.api.database import init_db
-from src.api.routes import detect, alerts, stats
+from src.api.routes import alerts, approvals, detect, drift, incidents, stats
 
 
 @asynccontextmanager
@@ -36,22 +36,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(detect.router, prefix="/api", tags=["Detection"])
-app.include_router(alerts.router, prefix="/api", tags=["Alerts"])
-app.include_router(stats.router,  prefix="/api", tags=["Stats"])
+app.include_router(detect.router,    prefix="/api", tags=["Detection"])
+app.include_router(alerts.router,    prefix="/api", tags=["Alerts"])
+app.include_router(incidents.router, prefix="/api", tags=["Incidents"])
+app.include_router(stats.router,     prefix="/api", tags=["Stats"])
+app.include_router(approvals.router, prefix="/api", tags=["Approvals"])
+app.include_router(drift.router,     prefix="/api", tags=["Drift"])
 
 
 @app.get("/api/health", tags=["System"])
 async def health():
     from src.ml.detection_engine import DetectionEngine
     engine = DetectionEngine.get_instance()
+    status = engine.status()
     return {
         "status":        "ok" if engine.is_ready else "degraded",
         "version":       settings.app_version,
         "model_origin":  getattr(engine, "data_origin", "unloaded"),
         "run_id":        getattr(engine, "active_run_id", "none"),
+        "certified":     status.get("certified", False),
+        "run_type":      status.get("run_type", "unknown"),
         "is_ready":      engine.is_ready,
-        "engine":        engine.status(),
+        "engine":        status,
     }
 
 

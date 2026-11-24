@@ -16,7 +16,8 @@ import {
   LogIn,
   LogOut,
   User,
-  Sliders
+  Sliders,
+  GitMerge
 } from 'lucide-react'
 import { useAuth } from '../features/auth/AuthContext'
 import { api } from '../lib/api/client'
@@ -24,6 +25,7 @@ import { api } from '../lib/api/client'
 const NAV = [
   { to: '/',          icon: Activity,    label: 'SOC Overview' },
   { to: '/alerts',    icon: Bell,        label: 'Alert Queue' },
+  { to: '/incidents', icon: GitMerge,    label: 'Incidents' },
   { to: '/detect',    icon: Zap,         label: 'Live Detection' },
   { to: '/models',    icon: BarChart2,   label: 'Models Telemetry' },
   { to: '/unknown',   icon: GitBranch,   label: 'Unknown & Drift' },

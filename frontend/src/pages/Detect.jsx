@@ -467,10 +467,14 @@ export default function Detect() {
   const timerRef = useRef(null)
   const dropdownRef = useRef(null)
 
-  // CSV Flow Injection State
+  // CSV / Batch Flow Injection State
   const [csvFileName, setCsvFileName] = useState(null)
+  const [csvFileObj, setCsvFileObj] = useState(null)
   const [csvRows, setCsvRows] = useState([])
   const [csvRowIndex, setCsvRowIndex] = useState(0)
+  const [batchUploading, setBatchUploading] = useState(false)
+  const [batchAutoAggregate, setBatchAutoAggregate] = useState(true)
+  const [batchSummary, setBatchSummary] = useState(null)
   const fileInputRef = useRef(null)
 
   // Live Web Ingress / Protected Website Telemetry State
@@ -488,26 +492,63 @@ export default function Detect() {
     const file = e.target.files?.[0]
     if (!file) return
     setCsvFileName(file.name)
+    setCsvFileObj(file)
+    setBatchSummary(null)
+    setError(null)
     const reader = new FileReader()
     reader.onload = (evt) => {
       const text = evt.target?.result
       if (typeof text !== 'string') return
-      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0)
-      if (lines.length < 2) return
-      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+      const trimmed = text.trim()
+      if (!trimmed) return
+
+      const lowerName = file.name.toLowerCase()
       const rows = []
-      for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(',').map(p => p.trim().replace(/^"|"$/g, ''))
-        if (parts.length === headers.length) {
-          const rowObj = {}
-          headers.forEach((h, idx) => {
-            const val = parts[idx]
-            const num = Number(val)
-            rowObj[h] = isNaN(num) ? val : num
+      if (lowerName.endsWith('.json') || lowerName.endsWith('.jsonl') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed)
+          const arr = Array.isArray(parsed)
+            ? parsed
+            : Array.isArray(parsed?.flows)
+              ? parsed.flows
+              : [parsed]
+          arr.forEach(item => {
+            if (item && typeof item === 'object') {
+              rows.push(item.features && typeof item.features === 'object' ? item.features : item)
+            }
           })
-          rows.push(rowObj)
+        } catch {
+          trimmed.split(/\r?\n/).forEach(line => {
+            const cleanLine = line.trim()
+            if (!cleanLine) return
+            try {
+              const obj = JSON.parse(cleanLine)
+              if (obj && typeof obj === 'object') {
+                rows.push(obj.features && typeof obj.features === 'object' ? obj.features : obj)
+              }
+            } catch {
+              // ignore malformed line during preview
+            }
+          })
+        }
+      } else {
+        const lines = trimmed.split(/\r?\n/).filter(l => l.trim().length > 0)
+        if (lines.length < 2) return
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+        for (let i = 1; i < lines.length; i++) {
+          const parts = lines[i].split(',').map(p => p.trim().replace(/^"|"$/g, ''))
+          if (parts.length === headers.length) {
+            const rowObj = {}
+            headers.forEach((h, idx) => {
+              const val = parts[idx]
+              const num = Number(val)
+              rowObj[h] = isNaN(num) ? val : num
+            })
+            rows.push(rowObj)
+          }
         }
       }
+
       setCsvRows(rows)
       setCsvRowIndex(0)
       if (rows.length > 0) {
@@ -515,6 +556,20 @@ export default function Detect() {
       }
     }
     reader.readAsText(file)
+  }
+
+  async function handleBatchUpload() {
+    if (!csvFileObj) return
+    setBatchUploading(true)
+    setError(null)
+    try {
+      const summary = await api.uploadFlowsFile(csvFileObj, batchAutoAggregate)
+      setBatchSummary(summary)
+    } catch (err) {
+      setError(`Batch upload error: ${err.message}`)
+    } finally {
+      setBatchUploading(false)
+    }
   }
 
   function loadCsvRow(row, idx) {
@@ -931,7 +986,7 @@ export default function Detect() {
               }}
             >
               <Layers size={13} />
-              <span>Enterprise Schema (77 Features)</span>
+              <span>Enterprise Schema (77 Fields → 69 Canonical)</span>
             </button>
             <button
               onClick={() => handleModeChange(10)}
@@ -1166,7 +1221,7 @@ export default function Detect() {
                   type="file"
                   ref={fileInputRef}
                   onChange={handleCsvFile}
-                  accept=".csv"
+                  accept=".csv,.json,.jsonl"
                   style={{ display: 'none' }}
                 />
                 <button
@@ -1174,7 +1229,7 @@ export default function Detect() {
                   style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}
                   title="Upload CSV to inspect and replay network flows row-by-row"
                 >
-                  <Upload size={12} /> Upload CSV
+                  <Upload size={12} /> Upload Flow File
                 </button>
                 <span style={{ color: 'var(--border)' }}>|</span>
                 <button
@@ -1193,47 +1248,82 @@ export default function Detect() {
               </div>
             </div>
 
-            {/* CSV Row Replay Strip if file loaded */}
-            {csvRows.length > 0 && (
+            {/* CSV / File Batch Replay Strip if file loaded */}
+            {(csvRows.length > 0 || csvFileObj) && (
               <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                 background: 'rgba(0, 212, 255, 0.08)', border: '1px solid var(--border)',
                 borderBottom: 'none', padding: '6px 12px', fontSize: 11
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent-cyan)' }}>
                   <FileSpreadsheet size={13} />
-                  <span><b>{csvFileName}</b>: Row {csvRowIndex + 1} of {csvRows.length}</span>
+                  <span><b>{csvFileName}</b>{csvRows.length ? `: Row ${csvRowIndex + 1} of ${csvRows.length}` : ''}</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {csvRows.length > 0 && (
+                    <>
+                      <button
+                        disabled={csvRowIndex <= 0}
+                        onClick={() => loadCsvRow(csvRows[csvRowIndex - 1], csvRowIndex - 1)}
+                        style={{
+                          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                          color: csvRowIndex <= 0 ? 'var(--text-muted)' : 'var(--text-primary)',
+                          padding: '2px 8px', borderRadius: 'var(--radius-sm)', cursor: csvRowIndex <= 0 ? 'not-allowed' : 'pointer', fontSize: 10
+                        }}
+                      >
+                        ◀ Prev
+                      </button>
+                      <button
+                        disabled={csvRowIndex >= csvRows.length - 1}
+                        onClick={() => loadCsvRow(csvRows[csvRowIndex + 1], csvRowIndex + 1)}
+                        style={{
+                          background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                          color: csvRowIndex >= csvRows.length - 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                          padding: '2px 8px', borderRadius: 'var(--radius-sm)', cursor: csvRowIndex >= csvRows.length - 1 ? 'not-allowed' : 'pointer', fontSize: 10
+                        }}
+                      >
+                        Next ▶
+                      </button>
+                    </>
+                  )}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={batchAutoAggregate}
+                      onChange={e => setBatchAutoAggregate(e.target.checked)}
+                    />
+                    <span>Auto-aggregate Incidents</span>
+                  </label>
                   <button
-                    disabled={csvRowIndex <= 0}
-                    onClick={() => loadCsvRow(csvRows[csvRowIndex - 1], csvRowIndex - 1)}
+                    onClick={handleBatchUpload}
+                    disabled={batchUploading}
                     style={{
-                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                      color: csvRowIndex <= 0 ? 'var(--text-muted)' : 'var(--text-primary)',
-                      padding: '2px 8px', borderRadius: 'var(--radius-sm)', cursor: csvRowIndex <= 0 ? 'not-allowed' : 'pointer', fontSize: 10
+                      background: 'var(--accent-cyan)', color: '#000', border: 'none',
+                      padding: '3px 10px', borderRadius: 'var(--radius-sm)', fontSize: 10, fontWeight: 800,
+                      cursor: batchUploading ? 'wait' : 'pointer'
                     }}
                   >
-                    ◀ Prev
+                    {batchUploading ? 'Scanning...' : 'Batch Scan All Rows'}
                   </button>
                   <button
-                    disabled={csvRowIndex >= csvRows.length - 1}
-                    onClick={() => loadCsvRow(csvRows[csvRowIndex + 1], csvRowIndex + 1)}
-                    style={{
-                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                      color: csvRowIndex >= csvRows.length - 1 ? 'var(--text-muted)' : 'var(--text-primary)',
-                      padding: '2px 8px', borderRadius: 'var(--radius-sm)', cursor: csvRowIndex >= csvRows.length - 1 ? 'not-allowed' : 'pointer', fontSize: 10
-                    }}
-                  >
-                    Next ▶
-                  </button>
-                  <button
-                    onClick={() => { setCsvRows([]); setCsvFileName(null); setCsvRowIndex(0) }}
+                    onClick={() => { setCsvRows([]); setCsvFileName(null); setCsvFileObj(null); setCsvRowIndex(0); setBatchSummary(null) }}
                     style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 10, marginLeft: 4 }}
                   >
                     Clear
                   </button>
                 </div>
+              </div>
+            )}
+
+            {batchSummary && (
+              <div style={{
+                background: 'rgba(57, 211, 83, 0.08)', border: '1px solid rgba(57, 211, 83, 0.35)',
+                borderBottom: 'none', padding: '8px 12px', fontSize: 11, color: 'var(--text-primary)'
+              }}>
+                <b>Batch Scan Complete ({batchSummary.filename}):</b> {batchSummary.processed}/{batchSummary.total_rows} flows scanned ·{' '}
+                <span style={{ color: 'var(--accent-red)', fontWeight: 700 }}>{batchSummary.attacks_detected} attacks</span> ·{' '}
+                <span style={{ color: 'var(--accent-amber)', fontWeight: 700 }}>{batchSummary.alerts_created} alerts saved</span> ·{' '}
+                <span style={{ color: 'var(--accent-purple)', fontWeight: 700 }}>{batchSummary.incidents_created} incidents created</span>
               </div>
             )}
 
@@ -1488,7 +1578,7 @@ export default function Detect() {
                             {key.toUpperCase()}
                           </span>
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                            {key === 'rf' ? 'Random Forest' : key === 'xgb' ? '35-Class XGBoost' : key === 'lstm' ? 'LSTM Sequential' : key === 'iso' ? 'Isolation Forest' : 'Autoencoder'}
+                            {key === 'rf' ? 'Random Forest' : key === 'xgb' ? 'XGBoost Multi-Class' : key === 'lstm' ? 'LSTM Sequential' : key === 'iso' ? 'Isolation Forest' : 'Autoencoder'}
                           </span>
                         </div>
                         <div style={{ flex: 1, margin: '0 16px', height: 4, background: 'var(--bg-base)', borderRadius: 2, overflow: 'hidden' }}>

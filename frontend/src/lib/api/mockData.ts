@@ -255,7 +255,8 @@ export const SEEDED_DRIFT_CLUSTERS: DriftCluster[] = [
     },
     first_detected: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
     last_detected: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-    severity: 'Critical'
+    severity: 'Critical',
+    alert_ids: [1042, 1040, 1036],
   },
   {
     id: 'cluster-c2-poly',
@@ -271,6 +272,7 @@ export const SEEDED_DRIFT_CLUSTERS: DriftCluster[] = [
     },
     first_detected: new Date(Date.now() - 1000 * 60 * 320).toISOString(),
     last_detected: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    severity: 'High'
+    severity: 'High',
+    alert_ids: [1037],
   }
 ]

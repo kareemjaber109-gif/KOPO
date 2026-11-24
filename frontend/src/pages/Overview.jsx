@@ -30,10 +30,12 @@ const PALETTE = ['#00d4ff', '#ff4757', '#f0a500', '#bd93f9', '#ff6b35', '#39d353
 
 export default function Overview() {
   const fetchStats = useCallback(() => api.stats(), [])
+  const fetchTimeline = useCallback(() => api.statsTimeline(24, '1h'), [])
   const fetchAlerts = useCallback(() => api.alerts({ limit: 200 }), [])
   const fetchHealth = useCallback(() => api.health(), [])
 
   const { data: stats } = usePolling(fetchStats, 6000)
+  const { data: timelineData } = usePolling(fetchTimeline, 10000)
   const { data: alertsData } = usePolling(fetchAlerts, 6000)
   const { data: healthData } = usePolling(fetchHealth, 15000)
 
@@ -49,21 +51,28 @@ export default function Overview() {
     return alerts.slice(startIndex, (endIndex || startIndex) + 1)
   }, [alerts, brushRange])
 
-  // 2. Timeline chart data (Alerts over time)
+  // 2. Timeline chart data (Hourly buckets from /api/stats/timeline, fallback to alerts if empty)
   const timeSeriesData = useMemo(() => {
+    const buckets = timelineData?.buckets ?? []
+    if (buckets.length > 0) {
+      return buckets.map((b, idx) => ({
+        index: idx,
+        time: b.label,
+        total_analyzed: b.total_analyzed,
+        total_alerts: b.total_alerts,
+        critical_alerts: b.critical_alerts,
+      }))
+    }
     if (!alerts.length) return []
-    // Group alerts chronologically
     const sorted = [...alerts].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
     return sorted.map((a, idx) => ({
       index: idx,
-      id: a.id,
       time: formatTs(a.timestamp),
-      confidence: a.confidence,
-      severity: a.severity_score,
-      attack_type: a.attack_type,
-      count: 1
+      total_analyzed: 1,
+      total_alerts: 1,
+      critical_alerts: a.severity_label === 'Critical' ? 1 : 0,
     }))
-  }, [alerts])
+  }, [timelineData, alerts])
 
   // 3. Confidence Histogram with 0.75 and 0.92 threshold bins
   const histogramData = useMemo(() => {
@@ -203,10 +212,10 @@ export default function Overview() {
           icon={Activity}
         />
         <StatCard
-          label="Open vs Acknowledged"
-          value={`${openAlerts} / ${ackedAlerts}`}
-          sub="Active vs Resolved threats"
-          color={openAlerts > 0 ? 'var(--accent-amber)' : 'var(--accent-green)'}
+          label="Open Alerts / Incidents"
+          value={`${stats?.open_alerts ?? openAlerts} / ${stats?.open_incidents ?? 0}`}
+          sub={`${ackedAlerts} resolved in window`}
+          color={(stats?.open_alerts ?? openAlerts) > 0 ? 'var(--accent-amber)' : 'var(--accent-green)'}
           icon={AlertTriangle}
         />
         <StatCard
@@ -261,14 +270,16 @@ export default function Overview() {
                   const p = payload[0].payload
                   return (
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 12px', fontSize: 11 }}>
-                      <div style={{ color: 'var(--text-muted)' }}>Incident #{p.id} · {p.time}</div>
-                      <div style={{ color: 'var(--accent-cyan)', fontWeight: 800 }}>{p.attack_type}</div>
-                      <div style={{ color: 'var(--text-secondary)' }}>Confidence: {(p.confidence * 100).toFixed(1)}%</div>
+                      <div style={{ color: 'var(--text-muted)' }}>Bucket · {p.time} UTC</div>
+                      <div style={{ color: 'var(--accent-cyan)', fontWeight: 800 }}>Analyzed Flows: {p.total_analyzed}</div>
+                      <div style={{ color: 'var(--accent-amber)' }}>Alerts Dispatched: {p.total_alerts}</div>
+                      <div style={{ color: 'var(--accent-red)' }}>Critical Alerts: {p.critical_alerts}</div>
                     </div>
                   )
                 }}
               />
-              <Area type="monotone" dataKey="confidence" stroke="var(--accent-cyan)" fill="rgba(0, 212, 255, 0.15)" />
+              <Area type="monotone" dataKey="total_analyzed" stroke="var(--accent-cyan)" fill="rgba(0, 212, 255, 0.14)" name="Analyzed" />
+              <Area type="monotone" dataKey="total_alerts" stroke="var(--accent-red)" fill="rgba(255, 71, 87, 0.2)" name="Alerts" />
               <Brush
                 dataKey="time"
                 height={26}
