@@ -8,10 +8,12 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    select,
     text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from src.api.services.auth_service import hash_password
 from src.utils.config import settings
 from src.utils.logger import logger
 
@@ -113,6 +115,18 @@ class AgentApprovalRecord(Base):
     decided_by         = Column(String(100), nullable=True)
 
 
+class UserAccount(Base):
+    __tablename__ = "users"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    name          = Column(String(120), nullable=False)
+    email         = Column(String(180), unique=True, nullable=False, index=True)
+    password_hash = Column(String(256), nullable=False)
+    role          = Column(String(32), nullable=False, default="tier1")
+    created_at    = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_login_at = Column(DateTime, nullable=True)
+
+
 _MIGRATION_COLUMNS = {
     "alerts": {
         "action": "VARCHAR(16)",
@@ -150,11 +164,40 @@ def _apply_sqlite_migrations(sync_conn):
     )
 
 
+_DEFAULT_ACCOUNTS = [
+    ("Ahmed K. (Tier 2 Analyst)", "analyst@kopo.defense", "User@1234", "tier2"),
+    ("Layla S. (Tier 1 Triage)", "triage@kopo.defense", "User@1234", "tier1"),
+    ("Dr. Ziad (SOC Admin)", "admin@kopo.defense", "Admin@1234", "admin"),
+]
+
+
+async def _seed_default_users():
+    async with AsyncSessionLocal() as session:
+        changed = False
+        for name, email, raw_pw, role in _DEFAULT_ACCOUNTS:
+            exists = (
+                await session.execute(select(UserAccount.id).where(UserAccount.email == email))
+            ).scalar_one_or_none()
+            if exists is None:
+                session.add(
+                    UserAccount(
+                        name=name,
+                        email=email,
+                        password_hash=hash_password(raw_pw),
+                        role=role,
+                    )
+                )
+                changed = True
+        if changed:
+            await session.commit()
+
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         if conn.dialect.name == "sqlite":
             await conn.run_sync(_apply_sqlite_migrations)
+    await _seed_default_users()
     logger.info("Database initialised")
 
 

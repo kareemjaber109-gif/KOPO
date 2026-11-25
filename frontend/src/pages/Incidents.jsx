@@ -236,22 +236,32 @@ export default function Incidents() {
 
       {/* KPI Strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 18 }}>
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 16px' }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Open Incidents</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--accent-red)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>{openCount}</div>
-        </div>
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 16px' }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Under Investigation</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--accent-amber)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>{invCount}</div>
-        </div>
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 16px' }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Resolved / Dismissed</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--accent-green)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>{resolvedCount}</div>
-        </div>
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 16px' }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>Correlated Alerts</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>{totalAlertsLinked}</div>
-        </div>
+        {[
+          { label: 'Open Incidents',       value: openCount,        color: 'var(--accent-red)' },
+          { label: 'Under Investigation',  value: invCount,         color: 'var(--accent-amber)' },
+          { label: 'Resolved / Dismissed', value: resolvedCount,    color: 'var(--accent-green)' },
+          { label: 'Correlated Alerts',    value: totalAlertsLinked,color: 'var(--accent-cyan)' },
+        ].map(({ label, value, color }) => (
+          <div key={label}
+            className="interactive-card"
+            style={{
+              background: 'var(--bg-surface)', border: '1px solid var(--border)',
+              borderLeft: `3px solid ${color}`,
+              borderRadius: 'var(--radius-md)', padding: '12px 16px',
+              position: 'relative', overflow: 'hidden',
+            }}
+          >
+            <div style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0, height: 2,
+              background: `linear-gradient(90deg, transparent, ${color}, transparent)`, opacity: 0.3
+            }} />
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>{label}</div>
+            <div key={value} className="animate-count-up"
+              style={{ fontSize: 22, fontWeight: 900, color, fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+              {value}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Filters Bar */}

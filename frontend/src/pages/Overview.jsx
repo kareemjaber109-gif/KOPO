@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  AreaChart, Area, Brush, ReferenceLine, CartesianGrid
+  AreaChart, Area, Brush, ReferenceLine, CartesianGrid, Cell, LabelList
 } from 'recharts'
 import { Link } from 'react-router-dom'
 import { usePolling } from '../hooks/usePolling.js'
@@ -335,8 +335,9 @@ export default function Overview() {
               />
               <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                 {histogramData.map((entry, index) => (
-                  <rect key={index} fill={entry.fill} />
+                  <Cell key={index} fill={entry.fill} />
                 ))}
+                <LabelList dataKey="count" position="top" style={{ fill: 'var(--text-muted)', fontSize: 10 }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -376,8 +377,9 @@ export default function Overview() {
                 />
                 <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                   {pieData.map((entry, i) => (
-                    <rect key={i} fill={entry.fill} />
+                    <Cell key={i} fill={entry.fill} />
                   ))}
+                  <LabelList dataKey="value" position="right" style={{ fill: 'var(--text-muted)', fontSize: 10 }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

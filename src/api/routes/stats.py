@@ -260,6 +260,8 @@ async def model_report(request: Request):
         "metrics_scope": "Ensemble (RF + XGBoost + Isotonic Calibration)",
     }
 
+    lstm_met = manifest.get("lstm_metrics", {})
+
     status["models"] = {
         "random_forest": {
             "status": "trained" if engine.rf_model else "not_trained",
@@ -270,13 +272,16 @@ async def model_report(request: Request):
             **shared_ensemble_summary,
         },
         "lstm": {
-            "status": (
-                "excluded_in_manifest"
-                if lstm_excluded
-                else ("trained" if engine.lstm_model else "not_trained")
-            ),
-            "loaded_legacy_fallback": bool(engine.lstm_model and lstm_excluded),
-            "note": excluded_models[0] if excluded_models else None,
+            "status": "trained" if engine.lstm_model else "not_trained",
+            "f1": lstm_met.get("f1_binary"),
+            "macro_f1": lstm_met.get("f1_macro"),
+            "accuracy": lstm_met.get("accuracy"),
+            "precision": lstm_met.get("precision"),
+            "recall": lstm_met.get("recall_tpr"),
+            "benign_fpr": lstm_met.get("benign_fpr"),
+            "metrics_scope": "PyTorch Deep LSTM (Binary Sequence Classifier, seq_len=20)",
+            "loaded_legacy_fallback": False,
+            "note": "Active in ensemble voting (binary threat / benign classifier)",
         },
         "isolation_forest": {
             "status": "trained" if (engine.iso_model or anom_if) else "not_trained",

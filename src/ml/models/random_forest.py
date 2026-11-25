@@ -38,14 +38,46 @@ class RFModel:
     def predict_single(self, features: np.ndarray) -> dict:
         proba = self.predict_proba(features.reshape(1, -1))[0]
         pred  = int(np.argmax(proba))
-        return {
+        names = getattr(self, "class_names", None)
+
+        # Resolve raw class name from argmax
+        if names and pred < len(names):
+            cname = names[pred]
+        elif len(proba) > 2:
+            cname = f"class_{pred}"
+        else:
+            cname = "ATTACK" if pred == 1 else "BENIGN"
+
+        # Total probability assigned to non-BENIGN classes
+        if names and len(names) == len(proba):
+            attack_prob = sum(float(proba[i]) for i, n in enumerate(names) if n != "BENIGN")
+        else:
+            attack_prob = float(proba[1]) if len(proba) == 2 else (1.0 - float(proba[0]))
+
+        # Binary attack decision: attack if argmax is non-BENIGN OR attack prob >= 40%
+        is_attack = bool(cname != "BENIGN" or attack_prob >= 0.40)
+
+        # label: always binary ATTACK / BENIGN (clear for SOC dashboard)
+        label = "ATTACK" if is_attack else "BENIGN"
+        # attack_type: specific class name when it's an attack (e.g. "PortScan", "Bot")
+        attack_type = cname if (is_attack and cname not in ["BENIGN", "ATTACK"]) else label
+        # confidence: use attack_prob when it's an attack for a more honest score
+        confidence = max(float(proba[pred]), attack_prob) if is_attack else float(proba[pred])
+
+        result = {
             "prediction":    pred,
-            "label":         "ATTACK" if pred == 1 else "BENIGN",
-            "confidence":    float(proba[pred]),
-            "proba_benign":  float(proba[0]),
-            "proba_attack":  float(proba[1]),
-            "is_attack":     pred == 1,
+            "label":         label,
+            "attack_type":   attack_type,
+            "confidence":    round(confidence, 4),
+            "is_attack":     is_attack,
         }
+        if names and len(names) == len(proba):
+            result["all_probabilities"] = {names[i]: float(p) for i, p in enumerate(proba)}
+        elif len(proba) == 2:
+            result["proba_benign"] = float(proba[0])
+            result["proba_attack"] = float(proba[1])
+
+        return result
 
     def evaluate(self, X_test: np.ndarray, y_test: np.ndarray) -> dict:
         y_pred  = self.predict(X_test)

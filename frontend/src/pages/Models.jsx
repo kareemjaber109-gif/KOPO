@@ -160,14 +160,9 @@ export default function Models() {
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{meta.role}</div>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 14 }}>{meta.arch}</div>
 
-                {name === 'lstm' ? (
+                {name === 'lstm' && isExcluded ? (
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', background: 'var(--bg-elevated)', padding: '10px 12px', borderRadius: 'var(--radius-sm)' }}>
                     {m.note || 'Excluded from run_clean_benchmark_v1 until sequence flow model is built.'}
-                    {m.loaded_legacy_fallback && (
-                      <div style={{ marginTop: 6, color: 'var(--accent-amber)', fontSize: 10 }}>
-                        Note: legacy lstm.pt fallback loaded only for backward engine schema compatibility.
-                      </div>
-                    )}
                   </div>
                 ) : isAnomaly ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -218,7 +213,7 @@ export default function Models() {
                     </div>
 
                     <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', background: 'var(--bg-elevated)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
-                      Scope: Joint RF+XGB+Isotonic · Benign FPR: <b style={{ color: 'var(--text-primary)' }}>{fmtPct(m.benign_fpr)}</b>
+                      Scope: {m.metrics_scope || 'Joint RF+XGB+Isotonic'} · Benign FPR: <b style={{ color: 'var(--text-primary)' }}>{fmtPct(m.benign_fpr)}</b>
                     </div>
                   </div>
                 )}

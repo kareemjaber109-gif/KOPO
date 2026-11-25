@@ -11,6 +11,8 @@ import AgentApprovals from './pages/AgentApprovals.jsx'
 import System from './pages/System.jsx'
 import { AuthProvider } from './features/auth/AuthContext.jsx'
 import AuthModal from './features/auth/AuthModal.jsx'
+import LoginUser from './pages/LoginUser.jsx'
+import LoginAdmin from './pages/LoginAdmin.jsx'
 import { api } from './lib/api/client.ts'
 import { AlertTriangle } from 'lucide-react'
 
@@ -144,6 +146,8 @@ export default function App() {
               <Route path="/approvals"   element={<AgentApprovals />} />
               <Route path="/models"      element={<Models />} />
               <Route path="/system"      element={<System />} />
+              <Route path="/login/user"  element={<LoginUser />} />
+              <Route path="/login/admin" element={<LoginAdmin />} />
             </Routes>
           </main>
         </div>

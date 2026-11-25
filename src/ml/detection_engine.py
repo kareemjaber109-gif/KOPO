@@ -217,8 +217,15 @@ class DetectionEngine:
                 logger.warning("STRICT PRODUCTION MODE: Synthetic supervised models detected in current.json. Refusing to serve synthetic weights in production mode.")
                 load_supervised = False
 
-        scaler_path = processed / "scaler.pkl"
-        meta_path   = processed / "metadata.json"
+        scaler_path = active_models_dir / "scaler.pkl"
+        if not scaler_path.exists():
+            scaler_path = base_models_dir / "scaler.pkl"
+        if not scaler_path.exists():
+            scaler_path = processed / "scaler.pkl"
+
+        meta_path = active_models_dir / "manifest.json"
+        if not meta_path.exists():
+            meta_path = processed / "metadata.json"
 
         if not scaler_path.exists() or not meta_path.exists():
             logger.warning("Scaler or metadata missing — run preprocessor first")
@@ -242,6 +249,8 @@ class DetectionEngine:
                 try:
                     from src.ml.models.random_forest import RFModel
                     self.rf_model = RFModel().load(rf_path)
+                    if not getattr(self.rf_model, "class_names", None):
+                        self.rf_model.class_names = self.class_names
                     logger.info("  Random Forest    : loaded")
                 except Exception as e:
                     logger.warning(f"  Random Forest load failed: {e}")
@@ -385,10 +394,12 @@ class DetectionEngine:
         hdr_min = 20.0 if proto == 6 else 8.0
         f["Fwd Seg Size Min"] = hdr_min
         f["min_seg_size_forward"] = hdr_min
-        f["Init Fwd Win Bytes"] = 8192.0
-        f["Init_Win_bytes_forward"] = 8192.0
-        f["Init Bwd Win Bytes"] = 65535.0 if bwd > 0 else 0.0
-        f["Init_Win_bytes_backward"] = 65535.0 if bwd > 0 else 0.0
+        if "Init Fwd Win Bytes" not in f and "Init_Win_bytes_forward" not in f:
+            f["Init Fwd Win Bytes"] = 29200.0 if proto == 6 else -1.0
+            f["Init_Win_bytes_forward"] = 29200.0 if proto == 6 else -1.0
+        if "Init Bwd Win Bytes" not in f and "Init_Win_bytes_backward" not in f:
+            f["Init Bwd Win Bytes"] = 227.0 if (bwd > 0 and proto == 6) else -1.0
+            f["Init_Win_bytes_backward"] = 227.0 if (bwd > 0 and proto == 6) else -1.0
         f["Fwd Act Data Packets"] = max(fwd - 1.0, 0.0)
         f["act_data_pkt_fwd"] = max(fwd - 1.0, 0.0)
 
@@ -527,21 +538,7 @@ class DetectionEngine:
         fin = float(f.get("FIN Flag Count", 0))
         size = float(f.get("Fwd Packet Length Max", f.get("Fwd Pkt Len Max", 0)))
 
-        # 1. Scans & Recon
-        if fwd <= 50 and bwd == 0 and size == 0:
-            if fin > 0:
-                return "FIN_SCAN"
-            if syn > 0 and ack == 0:
-                return "SYN_SCAN"
-            return "PORT_SCAN"
-
-        # 2. Brute Force
-        if port == 22 or (dur > 5_000_000 and 200 <= fwd <= 3000 and 100 <= size <= 500):
-            return "BRUTE_FORCE_SSH"
-        if port == 21:
-            return "BRUTE_FORCE_FTP"
-
-        # 3. DDoS Floods
+        # 1. DDoS Floods (Check massive volumetric attacks first)
         if syn > 1000 and ack == 0:
             return "SYN_FLOOD"
         if proto == 17 and fwd > 2000:
@@ -549,23 +546,52 @@ class DetectionEngine:
         if proto == 1 and fwd > 1000:
             return "ICMP_FLOOD"
 
-        # 4. DoS Attacks
+        # 2. Scans & Recon
+        if (fwd <= 500 and bwd <= 5 and size == 0 and (syn > 0 or fin > 0 or ack == 0)) or (syn > 0 and ack == 0 and fwd <= 1000 and size == 0):
+            if fin > 0:
+                return "FIN_SCAN"
+            if syn > 0 and ack == 0:
+                return "PORT_SCAN" if fwd <= 5 else "SYN_SCAN"
+            if syn == 0 and ack == 0 and fin == 0:
+                return "NULL_SCAN"
+            return "PORT_SCAN"
+
+        # 3. Brute Force
+        if port == 22 or (dur > 5_000_000 and 200 <= fwd <= 3000 and 100 <= size <= 500):
+            return "BRUTE_FORCE_SSH"
+        if port == 21:
+            return "BRUTE_FORCE_FTP"
+
+        # 4. DoS Fragmentation / Specific Attacks
+        # TEARDROP: UDP one-way flood, small packets, mid-range packet count
+        if proto == 17 and bwd == 0 and size <= 100 and 10 <= fwd <= 2000:
+            return "TEARDROP"
+        # PING_OF_DEATH: ICMP one-way with oversized packets
+        if proto == 1 and bwd == 0 and size > 1400:
+            return "PING_OF_DEATH"
+        # LAND_ATTACK: TCP SYN with no ACK, one-way, low packet count to single target
+        if proto == 6 and bwd == 0 and syn > 0 and ack == 0 and 1 <= fwd <= 100:
+            return "LAND_ATTACK"
+
+        # 5. DoS Layer 7 Attacks
         if port == 80 and fwd > 3000 and size >= 1400:
             return "HTTP_FLOOD"
         if dur > 20_000_000 and size <= 20 and port == 80:
             return "SLOWLORIS"
 
-        # 5. Web Exploits
+        # 6. Exfiltration & Anomaly Infiltration
+        if (bwd > fwd * 3 and bwd >= 50) or (bwd >= 1000):
+            return "DATA_EXFILTRATION"
+
+        # 7. Web Exploits
         if port in [80, 443] and (psh > 10 or size > 800):
             return "SQL_INJECTION" if psh > 20 else "WEB_ATTACK"
 
-        # 6. Malware & Infiltration
-        if port in [4444, 1337, 8088]:
+        # 8. Malware & Command and Control
+        if port in [4444, 1337]:
             return "C2_BEACON"
         if port in [3333, 4444] or dur > 60_000_000:
             return "CRYPTOMINING"
-        if bwd > fwd * 3 and bwd > 1000:
-            return "DATA_EXFILTRATION"
 
         return "ZERO_DAY_EXPLOIT"
 
@@ -585,11 +611,14 @@ class DetectionEngine:
                 pred_idx = int(np.argmax(probs))
                 cname = self.class_names[pred_idx] if pred_idx < len(self.class_names) else str(pred_idx)
                 conf = float(probs[pred_idx])
+                attack_prob = sum(float(probs[i]) for i in range(len(self.class_names)) if self.class_names[i] != "BENIGN" and i < len(probs))
+                is_rf_attack = bool(cname != "BENIGN" or attack_prob >= 0.40)
                 results["rf"] = {
                     "prediction": pred_idx,
-                    "label": cname,
-                    "confidence": conf,
-                    "is_attack": cname != "BENIGN",
+                    "label": "ATTACK" if is_rf_attack else "BENIGN",
+                    "attack_type": cname if cname != "BENIGN" else ("ATTACK" if is_rf_attack else "BENIGN"),
+                    "confidence": conf if not is_rf_attack else max(conf, attack_prob),
+                    "is_attack": is_rf_attack,
                     "all_probabilities": {self.class_names[i]: float(probs[i]) for i in range(len(self.class_names)) if i < len(probs)}
                 }
 
@@ -626,7 +655,7 @@ class DetectionEngine:
                 X_anom = self.anomaly_preprocessor.transform(flow_dict, strict=False)
                 score_arr, p_ae, p_if = self.anomaly_ensemble.predict_score(X_anom)
                 anomaly_score = float(score_arr[0])
-                thresh = getattr(self.anomaly_ensemble, "threshold", 0.9875)
+                thresh = 0.82
                 is_anomaly = bool(anomaly_score >= thresh)
                 results["anomaly_ensemble"] = {
                     "label": "ANOMALY" if is_anomaly else "NORMAL",
@@ -639,7 +668,7 @@ class DetectionEngine:
                 }
                 # Also synchronize ISO in the model breakdown with the calibrated Isolation Forest
                 iso_p = float(p_if[0])
-                iso_is_anomaly = iso_p >= 0.65
+                iso_is_anomaly = iso_p >= thresh
                 results["iso"] = {
                     "prediction": 1 if iso_is_anomaly else 0,
                     "label": "ATTACK" if iso_is_anomaly else "BENIGN",
@@ -671,17 +700,18 @@ class DetectionEngine:
         # In Enterprise IDS:
         # 1. Supervised attack confirmed when XGBoost or RF detects an attack, or 2+ supervised models agree.
         # 2. Majority of all ensemble models agree (>= 3 / 5).
-        # 3. Statistical zero-day anomaly triggered when dual anomaly detector reaches extreme divergence.
+        # 3. Statistical zero-day anomaly confirmed when dual anomaly detectors (Autoencoder + Isolation Forest)
+        #    both detect extreme divergence, or when 1 anomaly detector + 1 supervised model agree.
         has_supervised_attack = (
             (xgb_attack and xgb_res.get("confidence", 0) >= 0.40) or
             (rf_attack and rf_res.get("confidence", 0) >= 0.60) or
             (supervised_attacks >= 2)
         )
         is_majority_attack = (attack_votes >= 3)
-        is_statistical_anomaly = (
-            (is_anomaly or iso_res.get("is_attack", False)) and
-            (anomaly_score is not None and anomaly_score >= 0.985) and
-            (supervised_attacks > 0)
+        thresh = 0.82
+        is_statistical_anomaly = bool(
+            (is_anomaly and iso_res.get("is_attack", False) and anomaly_score is not None and anomaly_score >= thresh) or
+            ((is_anomaly or iso_res.get("is_attack", False)) and supervised_attacks >= 1)
         )
 
         ensemble_attack = has_supervised_attack or is_majority_attack or is_statistical_anomaly
@@ -697,7 +727,7 @@ class DetectionEngine:
                 non_benign = {k: v for k, v in all_probs.items() if k not in ["BENIGN", "ATTACK", "ANOMALY"]}
                 if non_benign:
                     top_cand, top_p = max(non_benign.items(), key=lambda x: x[1])
-                    if top_p >= 0.02:
+                    if top_p >= 0.20:
                         attack_type = top_cand
                         confidence = max(top_p, rf_res.get("confidence", 0.85))
                     else:
@@ -707,7 +737,7 @@ class DetectionEngine:
                     attack_type = self._infer_attack_from_flow(flow_dict)
                     confidence = rf_res.get("confidence", 0.88)
 
-            # Safety fallback: guarantee no ambiguous generic "ATTACK" or "ANOMALY" leaks
+            # Safety fallback: guarantee no ambiguous generic label leaks on supervised attacks
             if attack_type in ["ATTACK", "ANOMALY", None, ""]:
                 attack_type = self._infer_attack_from_flow(flow_dict)
         else:
@@ -724,7 +754,7 @@ class DetectionEngine:
         # Determine SOC action: DROP, REVIEW, or ALLOW
         if ensemble_attack and confidence >= 0.70 and attack_type != "ANOMALY":
             action = "DROP"
-        elif ensemble_attack or is_anomaly:
+        elif ensemble_attack or (is_anomaly and is_statistical_anomaly):
             action = "REVIEW"
         else:
             action = "ALLOW"

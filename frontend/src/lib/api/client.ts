@@ -14,6 +14,8 @@ import {
   HealthResponse, HealthResponseSchema,
   AgentApproval, AgentApprovalSchema,
   DriftCluster, DriftClusterSchema,
+  AuthUser, AuthUserSchema,
+  AuthResponse, AuthResponseSchema,
 } from './types'
 import { SEEDED_ALERTS, SEEDED_AGENT_APPROVALS, SEEDED_DRIFT_CLUSTERS } from './mockData'
 
@@ -288,7 +290,7 @@ class MockAdapter {
       models: {
         xgboost: { status: 'trained', macro_f1: 0.9357, accuracy: 0.9693, recall: 0.8058, precision: 0.9921 },
         random_forest: { status: 'trained', macro_f1: 0.9357, accuracy: 0.9693, recall: 0.8058, precision: 0.9921 },
-        lstm: { status: 'excluded_in_manifest' },
+        lstm: { status: 'trained', macro_f1: 0.7748, accuracy: 0.7750, recall: 0.8053, precision: 0.7567, benign_fpr: 0.2549, metrics_scope: 'PyTorch Deep LSTM (Binary Sequence Classifier, seq_len=20)' },
         isolation_forest: { status: 'trained', roc_auc: 0.8493 },
         anomaly_ensemble: { status: 'trained', roc_auc: 0.8361, threshold: 0.9872 },
       },
@@ -316,6 +318,116 @@ class MockAdapter {
   async getDriftClusters(): Promise<DriftCluster[]> {
     return [...this.driftClusters]
   }
+
+  private getMockAccounts(): Array<{ id: number; name: string; email: string; password: string; role: string }> {
+    const defaults = [
+      { id: 1, name: 'Ahmed K. (Tier 2 Analyst)', email: 'analyst@kopo.defense', password: 'User@1234', role: 'tier2' },
+      { id: 2, name: 'Layla S. (Tier 1 Triage)', email: 'triage@kopo.defense', password: 'User@1234', role: 'tier1' },
+      { id: 3, name: 'Dr. Ziad (SOC Admin)', email: 'admin@kopo.defense', password: 'Admin@1234', role: 'admin' },
+    ]
+    try {
+      const raw = localStorage.getItem('kopo_mock_accounts_v1')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed
+      }
+      localStorage.setItem('kopo_mock_accounts_v1', JSON.stringify(defaults))
+    } catch {
+      // ignore storage errors
+    }
+    return defaults
+  }
+
+  private saveMockAccounts(accounts: Array<{ id: number; name: string; email: string; password: string; role: string }>) {
+    try {
+      localStorage.setItem('kopo_mock_accounts_v1', JSON.stringify(accounts))
+    } catch {
+      // ignore
+    }
+  }
+
+  async authRegister(body: {
+    name: string
+    email: string
+    password: string
+    confirm_password?: string
+    role?: 'tier1' | 'tier2' | 'admin'
+    portal?: 'user' | 'admin'
+    invite_code?: string
+  }): Promise<AuthResponse> {
+    const email = (body.email || '').trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error('Please enter a valid email address')
+    }
+    if (!body.name || body.name.trim().length < 2) {
+      throw new Error('Full name must be at least 2 characters')
+    }
+    if (!body.password || body.password.length < 6 || !/[a-zA-Z]/.test(body.password) || !/\d/.test(body.password)) {
+      throw new Error('Password must be 6+ characters and include at least one letter and one number')
+    }
+    if (body.confirm_password !== undefined && body.confirm_password !== body.password) {
+      throw new Error('Passwords do not match')
+    }
+
+    const portal = body.portal || 'user'
+    const accounts = this.getMockAccounts()
+    if (accounts.some(a => a.email === email)) {
+      throw new Error('An account with this email already exists. Please sign in with your password.')
+    }
+
+    let role = body.role || 'tier1'
+    if (portal === 'admin') {
+      if ((body.invite_code || '').trim() !== 'KOPO-ADMIN-2026') {
+        throw new Error('Invalid administrator invite code')
+      }
+      role = 'admin'
+    } else if (role === 'admin') {
+      throw new Error('Admin clearance cannot be self-assigned on User portal')
+    }
+
+    const created = { id: Date.now(), name: body.name.trim(), email, password: body.password, role }
+    this.saveMockAccounts([...accounts, created])
+    return {
+      user: { id: created.id, name: created.name, email: created.email, role: created.role },
+      token: `mock-token-${created.id}`,
+      portal,
+    }
+  }
+
+  async authLogin(body: { email: string; password: string; portal?: 'user' | 'admin' }): Promise<AuthResponse> {
+    const email = (body.email || '').trim().toLowerCase()
+    const portal = body.portal || 'user'
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error('Please enter a valid email address')
+    }
+    const accounts = this.getMockAccounts()
+    const found = accounts.find(a => a.email === email)
+    if (!found) {
+      throw new Error('No account found for this email address.')
+    }
+    if (found.password !== body.password) {
+      throw new Error('Incorrect password. Access denied.')
+    }
+    const isAdmin = found.role === 'admin' || found.role === 'lead'
+    if (portal === 'admin' && !isAdmin) {
+      throw new Error('Access denied: This account has Operator clearance. Use User Login (/login/user).')
+    }
+    if (portal === 'user' && isAdmin) {
+      throw new Error('This is an Administrator account. Please sign in via Admin Login (/login/admin).')
+    }
+    return {
+      user: { id: found.id, name: found.name, email: found.email, role: found.role },
+      token: `mock-token-${found.id}`,
+      portal,
+    }
+  }
+
+  async authMe(token: string): Promise<AuthUser> {
+    const accounts = this.getMockAccounts()
+    const idStr = token.replace('mock-token-', '')
+    const found = accounts.find(a => String(a.id) === idStr) || accounts[0]
+    return { id: found.id, name: found.name, email: found.email, role: found.role }
+  }
 }
 
 class RealAdapter {
@@ -331,11 +443,17 @@ class RealAdapter {
       let msg = `HTTP ${res.status}: ${res.statusText}`
       try {
         const err = await res.json()
-        if (err?.detail) msg = String(err.detail)
+        if (err?.detail) {
+          msg = Array.isArray(err.detail)
+            ? err.detail.map((d: any) => d?.msg || JSON.stringify(d)).join('; ')
+            : String(err.detail)
+        }
       } catch {
         // ignore parse failure
       }
-      throw new Error(msg)
+      const httpErr = new Error(msg) as Error & { status?: number }
+      httpErr.status = res.status
+      throw httpErr
     }
     return res.json()
   }
@@ -479,6 +597,37 @@ class RealAdapter {
     const json = await this.request('/drift-clusters')
     return z.array(DriftClusterSchema).parse(json)
   }
+
+  async authRegister(body: {
+    name: string
+    email: string
+    password: string
+    confirm_password?: string
+    role?: 'tier1' | 'tier2' | 'admin'
+    portal?: 'user' | 'admin'
+    invite_code?: string
+  }): Promise<AuthResponse> {
+    const json = await this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    return AuthResponseSchema.parse(json)
+  }
+
+  async authLogin(body: { email: string; password: string; portal?: 'user' | 'admin' }): Promise<AuthResponse> {
+    const json = await this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    return AuthResponseSchema.parse(json)
+  }
+
+  async authMe(token: string): Promise<AuthUser> {
+    const json = await this.request('/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    return AuthUserSchema.parse(json)
+  }
 }
 
 const mockInstance = new MockAdapter()
@@ -489,6 +638,19 @@ async function withFallback<T>(realFn: () => Promise<T>, mockFn: () => Promise<T
   try {
     return await realFn()
   } catch {
+    return mockFn()
+  }
+}
+
+async function authWithNetworkFallback<T>(realFn: () => Promise<T>, mockFn: () => Promise<T>): Promise<T> {
+  if (IS_MOCK_ENV) return mockFn()
+  try {
+    return await realFn()
+  } catch (err: any) {
+    // Only fall back to MockAdapter if backend is truly unreachable (network error without HTTP status)
+    if (err && typeof err.status === 'number') {
+      throw err
+    }
     return mockFn()
   }
 }
@@ -542,4 +704,18 @@ export const api = {
     ),
   getDriftClusters: () =>
     withFallback(() => realInstance.getDriftClusters(), () => mockInstance.getDriftClusters()),
+  authRegister: (body: {
+    name: string
+    email: string
+    password: string
+    confirm_password?: string
+    role?: 'tier1' | 'tier2' | 'admin'
+    portal?: 'user' | 'admin'
+    invite_code?: string
+  }) =>
+    authWithNetworkFallback(() => realInstance.authRegister(body), () => mockInstance.authRegister(body)),
+  authLogin: (body: { email: string; password: string; portal?: 'user' | 'admin' }) =>
+    authWithNetworkFallback(() => realInstance.authLogin(body), () => mockInstance.authLogin(body)),
+  authMe: (token: string) =>
+    authWithNetworkFallback(() => realInstance.authMe(token), () => mockInstance.authMe(token)),
 }

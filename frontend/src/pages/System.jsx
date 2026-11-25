@@ -87,12 +87,43 @@ export default function System() {
 
   const loadedFlags = healthData?.engine?.models ?? {}
   const lstmExcluded = reportData?.models?.lstm?.status === 'excluded_in_manifest'
+  // Pipeline badge logic:
+  // - warn = true  → shows ⚠ amber info tooltip (not an error), model may still be loaded
+  // - active = true + warn = false → ✅ green Loaded
+  // - active = false → ✗ red Inactive
   const pipelineItems = [
-    { name: 'Active Model Run', detail: `${healthData?.run_id || 'run_clean_benchmark_v1'} (${healthData?.run_type || 'research_baseline'})`, active: Boolean(healthData?.is_ready), warn: !healthData?.certified },
-    { name: 'Random Forest Classifier', detail: `${(reportData?.class_names || []).length || 8} classes · ${nFeatures} features`, active: Boolean(loadedFlags.random_forest) },
-    { name: 'XGBoost Multi-Classifier', detail: 'Gradient-boosted tree classifier + probability scoring', active: Boolean(loadedFlags.xgboost) },
-    { name: 'PyTorch LSTM', detail: lstmExcluded ? 'Excluded in manifest (legacy weight fallback)' : 'Temporal sequence classifier', active: Boolean(loadedFlags.lstm), warn: lstmExcluded },
-    { name: 'Dual Autoencoder + IF Ensemble', detail: `AnomalyPreprocessor (threshold=${reportData?.models?.anomaly_ensemble?.threshold?.toFixed?.(4) || '0.9872'})`, active: Boolean(loadedFlags.anomaly_ensemble) },
+    {
+      name: 'Active Model Run',
+      detail: `${healthData?.run_id || 'run_clean_benchmark_v1'} (${healthData?.run_type || 'research_baseline'})`,
+      active: Boolean(healthData?.is_ready),
+      // amber info only when uncertified — it IS running, just not production-certified
+      infoNote: !healthData?.certified ? 'Research baseline — not production certified' : null,
+    },
+    {
+      name: 'Random Forest Classifier',
+      detail: `${(reportData?.class_names || []).length || 8} classes · ${nFeatures} features`,
+      active: Boolean(loadedFlags.random_forest),
+    },
+    {
+      name: 'XGBoost Multi-Classifier',
+      detail: 'Gradient-boosted tree classifier + probability scoring',
+      active: Boolean(loadedFlags.xgboost),
+    },
+    {
+      name: 'PyTorch LSTM',
+      // Show "Loaded (ensemble-excluded)" when loaded but excluded, only warn when excluded AND not loaded
+      detail: lstmExcluded
+        ? (loadedFlags.lstm ? 'Loaded · Excluded from ensemble (legacy weight fallback)' : 'Excluded in manifest — weight file missing')
+        : 'Temporal sequence classifier',
+      active: Boolean(loadedFlags.lstm),
+      infoNote: lstmExcluded && loadedFlags.lstm ? 'Model loaded but excluded from ensemble voting' : null,
+      warn:     lstmExcluded && !loadedFlags.lstm,
+    },
+    {
+      name: 'Dual Autoencoder + IF Ensemble',
+      detail: `AnomalyPreprocessor (threshold=${reportData?.models?.anomaly_ensemble?.threshold?.toFixed?.(4) || '0.9872'})`,
+      active: Boolean(loadedFlags.anomaly_ensemble),
+    },
   ]
 
   const isMock = api.isMock
@@ -212,10 +243,23 @@ export default function System() {
                   </div>
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
-                    color: m.warn ? 'var(--accent-amber)' : m.active ? 'var(--accent-green)' : 'var(--accent-red)'
+                    color: m.warn ? 'var(--accent-red)' : m.infoNote ? 'var(--accent-amber)' : m.active ? 'var(--accent-green)' : 'var(--accent-red)'
                   }}>
-                    {m.warn ? <AlertTriangle size={13} /> : <CheckCircle2 size={13} />}
+                    {m.warn
+                      ? <AlertTriangle size={13} />
+                      : m.infoNote
+                        ? <AlertTriangle size={13} color="var(--accent-amber)" />
+                        : <CheckCircle2 size={13} />}
                     <span>{m.active ? 'Loaded' : 'Inactive'}</span>
+                    {m.infoNote && (
+                      <span style={{
+                        fontSize: 9, background: 'rgba(240,165,0,0.12)', border: '1px solid rgba(240,165,0,0.3)',
+                        borderRadius: 4, padding: '1px 5px', color: 'var(--accent-amber)', fontWeight: 600,
+                        marginLeft: 2, whiteSpace: 'nowrap'
+                      }}>
+                        INFO
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

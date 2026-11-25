@@ -1,10 +1,11 @@
+# FastAPI Entrypoint - Production Engine Active
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.utils.config import settings
 from src.utils.logger import logger
 from src.api.database import init_db
-from src.api.routes import alerts, approvals, detect, drift, incidents, stats
+from src.api.routes import alerts, approvals, auth, detect, drift, incidents, stats
 
 
 @asynccontextmanager
@@ -36,6 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router,      prefix="/api", tags=["Auth"])
 app.include_router(detect.router,    prefix="/api", tags=["Detection"])
 app.include_router(alerts.router,    prefix="/api", tags=["Alerts"])
 app.include_router(incidents.router, prefix="/api", tags=["Incidents"])

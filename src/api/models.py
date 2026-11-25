@@ -236,3 +236,34 @@ class DriftClusterResponse(BaseModel):
     last_detected: datetime
     severity: str
     alert_ids: list[int] = []
+
+
+class AuthRegisterRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    email: str = Field(..., min_length=5, max_length=180)
+    password: str = Field(..., min_length=6, max_length=128)
+    confirm_password: Optional[str] = None
+    role: Literal["tier1", "tier2", "admin"] = "tier1"
+    portal: Literal["user", "admin"] = "user"
+    invite_code: Optional[str] = None
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=180)
+    password: str = Field(..., min_length=1, max_length=128)
+    portal: Literal["user", "admin"] = "user"
+
+
+class AuthUserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    role: str
+    created_at: datetime
+    last_login_at: Optional[datetime] = None
+
+
+class AuthResponse(BaseModel):
+    user: AuthUserResponse
+    token: str
+    portal: Literal["user", "admin"]

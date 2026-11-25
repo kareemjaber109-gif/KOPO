@@ -158,11 +158,11 @@ export default function Sidebar({ engineReady, theme = 'dark', toggleTheme }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{
                 fontSize: 9, fontFamily: 'var(--font-mono)', padding: '2px 6px', borderRadius: 4,
-                background: user.role === 'lead' ? 'rgba(255,71,87,0.18)' : user.role === 'tier2' ? 'rgba(189,147,249,0.18)' : 'rgba(0,212,255,0.18)',
-                color: user.role === 'lead' ? 'var(--accent-red)' : user.role === 'tier2' ? 'var(--accent-purple)' : 'var(--accent-cyan)',
+                background: (user.role === 'lead' || user.role === 'admin') ? 'rgba(255,71,87,0.18)' : user.role === 'tier2' ? 'rgba(189,147,249,0.18)' : 'rgba(0,212,255,0.18)',
+                color: (user.role === 'lead' || user.role === 'admin') ? 'var(--accent-red)' : user.role === 'tier2' ? 'var(--accent-purple)' : 'var(--accent-cyan)',
                 fontWeight: 800
               }}>
-                {user.role === 'lead' ? '👑 SOC Lead' : user.role === 'tier2' ? '⚡ Tier 2 Analyst' : '🛡️ Tier 1 Triage'}
+                {user.role === 'admin' ? '👑 Admin' : user.role === 'lead' ? '👑 SOC Lead' : user.role === 'tier2' ? '⚡ Tier 2 Analyst' : '🛡️ Tier 1 Triage'}
               </span>
 
               <button

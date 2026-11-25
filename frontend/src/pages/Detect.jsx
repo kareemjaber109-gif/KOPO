@@ -39,6 +39,7 @@ import {
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api/client.ts'
 import { attackColor } from '../utils/helpers.js'
+import { ATTACK_TEMPLATES } from './attackTemplates.js'
 
 // Realistic live HTTP web ingress flow templates simulating protected application telemetry
 const INGRESS_PRESETS = [
@@ -263,8 +264,8 @@ export function generateAttackParams(label) {
     dur = Math.floor(Math.random() * 800000) + 100000; fwd = Math.floor(Math.random() * 300) + 100; bwd = 0
     size = [28, 40, 60][Math.floor(Math.random() * 3)]; syn = 0; ack = 0; proto = 17; port = 0
   } else if (label === 'LAND_ATTACK') {
-    const f = Math.floor(Math.random() * 3000) + 1000
-    dur = Math.floor(Math.random() * 800000) + 100000; fwd = f; bwd = 0; size = 60; syn = f; ack = 0; port = 80; proto = 6
+    const f = Math.floor(Math.random() * 25) + 5
+    dur = Math.floor(Math.random() * 800000) + 100000; fwd = f; bwd = 0; size = 40; syn = f; ack = 0; port = 80; proto = 6
   } else if (label === 'SYN_FLOOD' || label === 'DDoS Attack' || label === 'DDOS') {
     const f = Math.floor(Math.random() * 8000) + 2500
     dur = Math.floor(Math.random() * 150000) + 50000; fwd = f; bwd = 0; size = 60; syn = f; ack = 0; port = 80; proto = 6
@@ -345,110 +346,231 @@ export function generateAttackParams(label) {
 
 // Dynamic synthetic flow generator supporting both 10 and 77 features
 export function makeDynamicFlow(label, mode = 77) {
-  const p = generateAttackParams(label)
-  const totalFwd = p.fwd * p.size
-  const totalBwd = p.bwd * p.size
-  const durSec = Math.max(p.dur / 1e6, 1e-6)
-  const iat = p.dur / Math.max(p.fwd, 1)
-  const bwdIat = p.bwd ? p.dur / p.bwd : 0
+  const isBenignLabel = label === 'BENIGN' || label === 'Normal HTTP' || label === 'Normal'
+  let flow
+
+  // Realistic non-zero packet & timing variance for benign traffic (avoids artificial zero-std anomaly triggers)
+  if (isBenignLabel) {
+    const port = [80, 443][Math.floor(Math.random() * 2)]
+    const dur = Math.floor(Math.random() * 520000) + 110000
+    const fwd = Math.floor(Math.random() * 6) + 7
+    const bwd = Math.floor(Math.random() * 5) + 5
+    const fwdMax = Math.floor(Math.random() * 80) + 180
+    const fwdMean = Number((fwdMax * (0.28 + Math.random() * 0.1)).toFixed(2))
+    const fwdStd = Number((fwdMax * (0.40 + Math.random() * 0.08)).toFixed(2))
+    const totalFwd = Math.round(fwd * fwdMean)
+    const bwdMax = Math.floor(Math.random() * 260) + 1200
+    const bwdMean = Number((bwdMax * (0.32 + Math.random() * 0.1)).toFixed(2))
+    const bwdStd = Number((bwdMax * (0.42 + Math.random() * 0.06)).toFixed(2))
+    const totalBwd = Math.round(bwd * bwdMean)
+    const durSec = Math.max(dur / 1e6, 1e-6)
+    const iat = dur / Math.max(fwd + bwd - 1, 1)
+    const fwdIat = dur / Math.max(fwd - 1, 1)
+    const bwdIat = (dur * 0.75) / Math.max(bwd - 1, 1)
+    const pktMean = Number(((totalFwd + totalBwd) / (fwd + bwd)).toFixed(2))
+    const pktStd = Number((bwdMax * 0.32).toFixed(2))
+    const bwdWin = [115, 172, 251][Math.floor(Math.random() * 3)]
+
+    flow = {
+      "Destination Port": port,
+      "Protocol": 6,
+      "Flow Duration": dur,
+      "Total Fwd Packets": fwd,
+      "Total Backward Packets": bwd,
+      "Total Length of Fwd Packets": totalFwd,
+      "Total Length of Bwd Packets": totalBwd,
+      "Fwd Packet Length Max": fwdMax,
+      "Fwd Packet Length Min": 0,
+      "Fwd Packet Length Mean": fwdMean,
+      "Fwd Packet Length Std": fwdStd,
+      "Bwd Packet Length Max": bwdMax,
+      "Bwd Packet Length Min": 0,
+      "Bwd Packet Length Mean": bwdMean,
+      "Bwd Packet Length Std": bwdStd,
+      "Flow Bytes/s": Math.round(((totalFwd + totalBwd) / durSec) * 100) / 100,
+      "Flow Packets/s": Math.round(((fwd + bwd) / durSec) * 100) / 100,
+      "Flow IAT Mean": Math.round(iat * 100) / 100,
+      "Flow IAT Std": Math.round(iat * 1.7 * 100) / 100,
+      "Flow IAT Max": Math.round(iat * 5.8 * 100) / 100,
+      "Flow IAT Min": 1,
+      "Fwd IAT Total": dur,
+      "Fwd IAT Mean": Math.round(fwdIat * 100) / 100,
+      "Fwd IAT Std": Math.round(fwdIat * 1.15 * 100) / 100,
+      "Fwd IAT Max": Math.round(fwdIat * 3.2 * 100) / 100,
+      "Fwd IAT Min": 24,
+      "Bwd IAT Total": Math.round(dur * 0.75),
+      "Bwd IAT Mean": Math.round(bwdIat * 100) / 100,
+      "Bwd IAT Std": Math.round(bwdIat * 1.5 * 100) / 100,
+      "Bwd IAT Max": Math.round(bwdIat * 4.0 * 100) / 100,
+      "Bwd IAT Min": 1,
+      "Fwd PSH Flags": 0,
+      "Bwd PSH Flags": 0,
+      "Fwd URG Flags": 0,
+      "Bwd URG Flags": 0,
+      "Fwd Header Length": fwd * 20,
+      "Bwd Header Length": bwd * 20,
+      "Fwd Packets/s": Math.round((fwd / durSec) * 100) / 100,
+      "Bwd Packets/s": Math.round((bwd / durSec) * 100) / 100,
+      "Min Packet Length": 0,
+      "Max Packet Length": bwdMax,
+      "Packet Length Mean": pktMean,
+      "Packet Length Std": pktStd,
+      "Packet Length Variance": Math.round(pktStd * pktStd * 100) / 100,
+      "FIN Flag Count": 0,
+      "SYN Flag Count": 0,
+      "RST Flag Count": 0,
+      "PSH Flag Count": 1,
+      "ACK Flag Count": 0,
+      "URG Flag Count": 0,
+      "CWE Flag Count": 0,
+      "ECE Flag Count": 0,
+      "Down/Up Ratio": 0,
+      "Average Packet Size": Number((pktMean * 1.06).toFixed(2)),
+      "Avg Fwd Segment Size": fwdMean,
+      "Avg Bwd Segment Size": bwdMean,
+      "Fwd Header Length.1": fwd * 20,
+      "Fwd Avg Bytes/Bulk": 0,
+      "Fwd Avg Packets/Bulk": 0,
+      "Fwd Avg Bulk Rate": 0,
+      "Bwd Avg Bytes/Bulk": 0,
+      "Bwd Avg Packets/Bulk": 0,
+      "Bwd Avg Bulk Rate": 0,
+      "Subflow Fwd Packets": fwd,
+      "Subflow Fwd Bytes": totalFwd,
+      "Subflow Bwd Packets": bwd,
+      "Subflow Bwd Bytes": totalBwd,
+      "Init_Win_bytes_forward": 8192,
+      "Init_Win_bytes_backward": bwdWin,
+      "act_data_pkt_fwd": Math.max(1, Math.floor(fwd / 2)),
+      "min_seg_size_forward": 20,
+      "Active Mean": 0.0,
+      "Active Std": 0.0,
+      "Active Max": 0,
+      "Active Min": 0,
+      "Idle Mean": 0.0,
+      "Idle Std": 0.0,
+      "Idle Max": 0,
+      "Idle Min": 0
+    }
+  } else {
+
+  // Attack Flows: derive from certified clean benchmark templates (guarantees high model confidence)
+  let templateKey = 'PortScan'
+  if (label.includes('PORT_SCAN') || label.includes('SYN_SCAN') || label.includes('NULL_SCAN') || label.includes('FIN_SCAN') || label.includes('XMAS_SCAN') || label === 'Port Scan') {
+    templateKey = 'PortScan'
+  } else if (label.includes('SYN_FLOOD') || label.includes('UDP_FLOOD') || label.includes('ICMP_FLOOD') || label.includes('AMPLIFICATION') || label === 'SMURF' || label.includes('DDOS') || label.includes('DDoS')) {
+    templateKey = 'DDoS'
+  } else if (label.includes('HTTP_FLOOD') || label.includes('SLOW') || label.includes('DOS') || label.includes('DoS') || label === 'TEARDROP' || label === 'PING_OF_DEATH' || label === 'LAND_ATTACK') {
+    templateKey = 'DoS'
+  } else if (label.includes('BRUTE_FORCE') || label.includes('PATATOR') || label.includes('SPRAYING') || label.includes('STUFFING') || label === 'Brute Force') {
+    templateKey = 'BruteForce'
+  } else if (label.includes('SQL') || label.includes('XSS') || label.includes('WEB_ATTACK') || label.includes('HEARTBLEED') || label.includes('PHISHING') || label.includes('INJECTION') || label.includes('TRAVERSAL')) {
+    templateKey = 'WebAttack'
+  } else if (label.includes('BOT') || label.includes('RANSOM') || label.includes('C2') || label.includes('MINING') || label === 'Malware') {
+    templateKey = 'Bot'
+  } else if (label.includes('ZERO_DAY') || label.includes('EXFILTRATION') || label.includes('SPAM') || label.includes('Zero-Day') || label === 'Abnormal (Zero-Day)') {
+    templateKey = 'ZeroDay'
+  }
+
+  const baseFlow = (ATTACK_TEMPLATES && ATTACK_TEMPLATES[templateKey]) || ATTACK_TEMPLATES.PortScan
+  flow = { ...baseFlow }
+
+  // Apply attack subtype specific nuances
+  if (templateKey === 'PortScan') {
+    flow['Destination Port'] = Math.floor(Math.random() * 1024) + 1
+    if (label.includes('SYN_SCAN')) {
+      flow['SYN Flag Count'] = 1
+      flow['PSH Flag Count'] = 0
+    } else if (label.includes('FIN_SCAN')) {
+      flow['FIN Flag Count'] = 1
+      flow['PSH Flag Count'] = 0
+    } else if (label.includes('NULL_SCAN')) {
+      flow['SYN Flag Count'] = 0
+      flow['ACK Flag Count'] = 0
+      flow['FIN Flag Count'] = 0
+      flow['PSH Flag Count'] = 0
+    } else if (label.includes('XMAS_SCAN')) {
+      flow['FIN Flag Count'] = 1
+      flow['PSH Flag Count'] = 1
+      flow['URG Flag Count'] = 1
+    }
+  } else if (templateKey === 'DDoS') {
+    if (label.includes('UDP_FLOOD') || label.includes('DNS_AMPLIFICATION')) {
+      flow['Protocol'] = 17
+      flow['Destination Port'] = 53
+    } else if (label.includes('NTP_AMPLIFICATION')) {
+      flow['Protocol'] = 17
+      flow['Destination Port'] = 123
+    } else if (label.includes('ICMP_FLOOD') || label.includes('SMURF')) {
+      flow['Protocol'] = 1
+      flow['Destination Port'] = 0
+    } else if (label.includes('SYN_FLOOD')) {
+      flow['Protocol'] = 6
+      flow['Destination Port'] = 80
+      flow['SYN Flag Count'] = 1
+    }
+  } else if (templateKey === 'DoS') {
+    if (label.includes('SLOW')) {
+      flow['Flow Duration'] = Math.floor(Math.random() * 20000000) + 25000000
+    } else if (label === 'PING_OF_DEATH') {
+      flow['Protocol'] = 1
+      flow['Destination Port'] = 0
+      flow['Fwd Packet Length Max'] = 1473
+      flow['Packet Length Max'] = 1473
+    } else if (label === 'TEARDROP') {
+      flow['Protocol'] = 17
+      flow['Destination Port'] = 0
+      flow['Fwd Packet Length Max'] = 48
+      flow['Packet Length Max'] = 48
+    } else if (label === 'LAND_ATTACK') {
+      flow['Destination Port'] = 80
+      flow['Total Backward Packets'] = 0
+      flow['Subflow Bwd Packets'] = 0
+    }
+  } else if (templateKey === 'BruteForce') {
+    flow['Destination Port'] = label.includes('FTP') ? 21 : (label.includes('WEB') ? 80 : 22)
+  } else if (templateKey === 'WebAttack') {
+    flow['Destination Port'] = label.includes('HEARTBLEED') ? 443 : 80
+  } else if (templateKey === 'Bot') {
+    flow['Destination Port'] = label === 'C2_BEACON' ? 4444 : (label === 'CRYPTOMINING' ? 3333 : (label === 'RANSOMWARE' ? 445 : 6667))
+  } else if (templateKey === 'ZeroDay') {
+    if (label === 'DATA_EXFILTRATION') {
+      flow['Destination Port'] = 9001
+      flow['Total Backward Packets'] = 1500
+      flow['Subflow Bwd Packets'] = 1500
+      flow['Total Length of Bwd Packets'] = 2190000
+      flow['Bwd Packets Length Total'] = 2190000
+    } else if (label === 'EMAIL_SPAM') {
+      flow['Destination Port'] = 25
+      flow['URG Flag Count'] = 4
+    }
+  }
+  }
+
+  // Light jitter for live dynamism on re-roll / clicks
+  const jitter = 0.97 + Math.random() * 0.06
+  if (flow['Flow Duration']) flow['Flow Duration'] = Math.round(flow['Flow Duration'] * jitter)
+  if (flow['Flow Bytes/s']) flow['Flow Bytes/s'] = Math.round(flow['Flow Bytes/s'] * jitter * 100) / 100
+  if (flow['Flow Packets/s']) flow['Flow Packets/s'] = Math.round(flow['Flow Packets/s'] * jitter * 100) / 100
 
   if (mode === 10) {
     return {
-      "Protocol": p.proto,
-      "Flow Duration": p.dur,
-      "Total Fwd Packets": p.fwd,
-      "Total Backward Packets": p.bwd,
-      "Fwd Packet Length Max": p.size,
-      "Flow Bytes/s": Math.round(((totalFwd + totalBwd) / durSec) * 100) / 100,
-      "Flow Packets/s": Math.round(((p.fwd + p.bwd) / durSec) * 100) / 100,
-      "SYN Flag Count": p.syn,
-      "ACK Flag Count": p.ack,
-      "Avg Packet Size": p.fwd ? Math.round((totalFwd / p.fwd) * 100) / 100 : 0
+      "Protocol": flow["Protocol"] || 6,
+      "Destination Port": flow["Destination Port"] || 80,
+      "Flow Duration": flow["Flow Duration"] || 100000,
+      "Total Fwd Packets": flow["Total Fwd Packets"] || 1,
+      "Total Backward Packets": flow["Total Backward Packets"] || 0,
+      "Fwd Packet Length Max": flow["Fwd Packet Length Max"] || 0,
+      "Flow Bytes/s": flow["Flow Bytes/s"] || 0,
+      "Flow Packets/s": flow["Flow Packets/s"] || 0,
+      "SYN Flag Count": flow["SYN Flag Count"] || 0,
+      "ACK Flag Count": flow["ACK Flag Count"] || 0,
+      "Init_Win_bytes_forward": flow["Init_Win_bytes_forward"] || 8192,
+      "Init_Win_bytes_backward": flow["Init_Win_bytes_backward"] || 0
     }
   }
 
-  // 77-Feature Full Spectrum
-  return {
-    "Destination Port": p.port,
-    "Protocol": p.proto,
-    "Flow Duration": p.dur,
-    "Total Fwd Packets": p.fwd,
-    "Total Backward Packets": p.bwd,
-    "Total Length of Fwd Packets": totalFwd,
-    "Total Length of Bwd Packets": totalBwd,
-    "Fwd Packet Length Max": p.size,
-    "Fwd Packet Length Min": p.size,
-    "Fwd Packet Length Mean": Number(p.size.toFixed(1)),
-    "Fwd Packet Length Std": 0.0,
-    "Bwd Packet Length Max": p.bwd ? p.size : 0,
-    "Bwd Packet Length Min": p.bwd ? p.size : 0,
-    "Bwd Packet Length Mean": p.bwd ? Number(p.size.toFixed(1)) : 0.0,
-    "Bwd Packet Length Std": 0.0,
-    "Flow Bytes/s": Math.round(((totalFwd + totalBwd) / durSec) * 100) / 100,
-    "Flow Packets/s": Math.round(((p.fwd + p.bwd) / durSec) * 100) / 100,
-    "Flow IAT Mean": Math.round(iat * 100) / 100,
-    "Flow IAT Std": 0.0,
-    "Flow IAT Max": Math.round(iat * 100) / 100,
-    "Flow IAT Min": Math.round(iat * 100) / 100,
-    "Fwd IAT Total": p.dur,
-    "Fwd IAT Mean": Math.round(iat * 100) / 100,
-    "Fwd IAT Std": 0.0,
-    "Fwd IAT Max": Math.round(iat * 100) / 100,
-    "Fwd IAT Min": Math.round(iat * 100) / 100,
-    "Bwd IAT Total": p.bwd ? p.dur : 0,
-    "Bwd IAT Mean": Math.round(bwdIat * 100) / 100,
-    "Bwd IAT Std": 0.0,
-    "Bwd IAT Max": Math.round(bwdIat * 100) / 100,
-    "Bwd IAT Min": Math.round(bwdIat * 100) / 100,
-    "Fwd PSH Flags": p.psh > 0 ? 1 : 0,
-    "Bwd PSH Flags": 0,
-    "Fwd URG Flags": p.urg > 0 ? 1 : 0,
-    "Bwd URG Flags": 0,
-    "Fwd Header Length": p.fwd * 20,
-    "Bwd Header Length": p.bwd * 20,
-    "Fwd Packets/s": Math.round((p.fwd / durSec) * 100) / 100,
-    "Bwd Packets/s": Math.round((p.bwd / durSec) * 100) / 100,
-    "Min Packet Length": Math.min(p.size, 60),
-    "Max Packet Length": Math.max(p.size, 60),
-    "Packet Length Mean": Number(p.size.toFixed(1)),
-    "Packet Length Std": 0.0,
-    "Packet Length Variance": 0.0,
-    "FIN Flag Count": p.fin,
-    "SYN Flag Count": p.syn,
-    "RST Flag Count": p.rst,
-    "PSH Flag Count": p.psh,
-    "ACK Flag Count": p.ack,
-    "URG Flag Count": p.urg,
-    "CWE Flag Count": 0,
-    "ECE Flag Count": 0,
-    "Down/Up Ratio": Math.round((p.bwd / Math.max(p.fwd, 1)) * 100000) / 100000,
-    "Average Packet Size": Number(p.size.toFixed(1)),
-    "Avg Fwd Segment Size": Number(p.size.toFixed(1)),
-    "Avg Bwd Segment Size": p.bwd ? Number(p.size.toFixed(1)) : 0.0,
-    "Fwd Header Length.1": p.fwd * 20,
-    "Fwd Avg Bytes/Bulk": 0,
-    "Fwd Avg Packets/Bulk": 0,
-    "Fwd Avg Bulk Rate": 0,
-    "Bwd Avg Bytes/Bulk": 0,
-    "Bwd Avg Packets/Bulk": 0,
-    "Bwd Avg Bulk Rate": 0,
-    "Subflow Fwd Packets": p.fwd,
-    "Subflow Fwd Bytes": totalFwd,
-    "Subflow Bwd Packets": p.bwd,
-    "Subflow Bwd Bytes": totalBwd,
-    "Init_Win_bytes_forward": 8192,
-    "Init_Win_bytes_backward": p.bwd ? 65535 : 0,
-    "act_data_pkt_fwd": Math.max(p.fwd - 1, 0),
-    "min_seg_size_forward": 20,
-    "Active Mean": label === 'BENIGN' ? 0.0 : p.dur / 2.0,
-    "Active Std": 0.0,
-    "Active Max": label === 'BENIGN' ? 0 : Math.floor(p.dur / 2),
-    "Active Min": label === 'BENIGN' ? 0 : Math.floor(p.dur / 2),
-    "Idle Mean": label === 'BENIGN' ? 0.0 : p.dur / 2.0,
-    "Idle Std": 0.0,
-    "Idle Max": label === 'BENIGN' ? 0 : Math.floor(p.dur / 2),
-    "Idle Min": label === 'BENIGN' ? 0 : Math.floor(p.dur / 2)
-  }
+  return flow
 }
 
 export default function Detect() {
@@ -585,6 +707,9 @@ export default function Detect() {
     if (!res) return null
     if (res.attack_type === 'BENIGN') {
       return 'RFC-Standard Benign Communication: Flow timing, packet sizes, and flag sequencing fully match normal operating baseline. No hostile deviation detected.'
+    }
+    if (res.attack_type === 'ANOMALY') {
+      return 'Unsupervised Statistical Outlier: Traffic deviates sharply from known normal baselines (non-standard protocol/port, asymmetric one-way flow, or artificial timing/size uniformity) without matching a known attack signature. Escalated for REVIEW & Drift Triage.'
     }
     if (res.attack_type === 'HTTP_FLOOD' || res.attack_type === 'DoS') {
       return 'Volumetric HTTP Flood: Rapid asymmetric forward transmission (>16,000 pps) aimed at saturating web socket pools. Supervised ensemble confirms DoS intrusion.'
@@ -810,7 +935,7 @@ export default function Detect() {
 
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1600, margin: '0 auto' }}>
-      
+
       {/* Top Operations Header with KOPO Branding */}
       <div style={{
         display: 'flex',
@@ -936,7 +1061,7 @@ export default function Detect() {
 
       {/* Main Grid: Left Flow Studio | Right SOC Diagnostics */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.08fr 0.92fr', gap: 24, alignItems: 'start' }}>
-        
+
         {/* LEFT COLUMN: Flow Injection Studio */}
         <div style={{
           background: 'var(--bg-surface)',
@@ -1052,14 +1177,14 @@ export default function Detect() {
               <span>Threat Categories (Click Arrow ▾ for Attack Vectors):</span>
               <span style={{ color: 'var(--accent-cyan)', fontSize: 10, fontWeight: 600 }}>Active Sub-Type shown next to Arrow ▾</span>
             </div>
-            
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
               {THREAT_CATEGORIES.map(cat => {
                 const isCatActive = activeCategory === cat.name
                 const isOpen = openDropdown === cat.id
                 return (
                   <div key={cat.id} style={{ position: 'relative' }}>
-                    
+
                     {/* Category Card */}
                     <div style={{
                       background: isCatActive ? `${cat.color}15` : 'var(--bg-elevated)',
@@ -1451,7 +1576,7 @@ export default function Detect() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              
+
               {/* HERO VERDICT CARD */}
               <div style={{
                 padding: '20px 22px',
@@ -1509,7 +1634,7 @@ export default function Detect() {
 
               {/* DUAL TELEMETRY GAUGES */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                
+
                 {/* Gauge 1: Anomaly Score */}
                 <div style={{
                   background: 'var(--bg-elevated)', border: `1px solid ${result.is_anomaly ? 'rgba(255,184,108,0.5)' : 'var(--border)'}`,
@@ -1548,12 +1673,18 @@ export default function Detect() {
                     </span>
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                    {result.ensemble_votes?.attack >= 2 ? 'ATTACK CONSENSUS' : 'BENIGN MAJORITY'}
+                    {(result.ensemble_votes?.attack || 0) > (result.ensemble_votes?.total || 5) / 2
+                      ? 'ATTACK CONSENSUS'
+                      : isAttackVerdict
+                        ? 'THREAT DETECTED'
+                        : (result.ensemble_votes?.attack || 0) === 0
+                          ? 'BENIGN CONSENSUS'
+                          : 'BENIGN MAJORITY'}
                   </div>
                   <div style={{ width: '100%', height: 5, background: 'var(--bg-base)', borderRadius: 3, marginTop: 8, overflow: 'hidden' }}>
                     <div style={{
                       width: `${((result.ensemble_votes?.attack || 0) / (result.ensemble_votes?.total || 5)) * 100}%`, height: '100%',
-                      background: result.ensemble_votes?.attack >= 2 ? 'var(--accent-red)' : 'var(--accent-green)'
+                      background: ((result.ensemble_votes?.attack || 0) > (result.ensemble_votes?.total || 5) / 2 || isAttackVerdict) ? 'var(--accent-red)' : 'var(--accent-green)'
                     }} />
                   </div>
                 </div>
@@ -1568,9 +1699,13 @@ export default function Detect() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {Object.entries(result.model_results || {}).map(([key, m]) => {
-                    const isAtk = m.is_attack || m.label === 'ATTACK' || (m.label && m.label !== 'BENIGN' && m.label !== 'NORMAL')
+                    const isAtk = m.is_attack || m.label === 'ATTACK' || m.label === 'ANOMALY' || (m.label && m.label !== 'BENIGN' && m.label !== 'NORMAL')
                     const color = isAtk ? 'var(--accent-red)' : 'var(--accent-green)'
-                    const labelText = key === 'xgb' ? `${m.label}` : m.label
+                    const labelText = key === 'rf'
+                      ? (isAtk ? (m.attack_type && m.attack_type !== 'ATTACK' && m.attack_type !== 'BENIGN' ? `ATTACK (${m.attack_type})` : 'ATTACK') : 'BENIGN')
+                      : key === 'xgb'
+                        ? `${m.label}`
+                        : m.label
                     return (
                       <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 140 }}>
@@ -1637,7 +1772,7 @@ export default function Detect() {
                 <Globe size={20} className="animate-pulse" />
               </div>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
                     PROTECTED APPLICATION INGRESS TELEMETRY // LIVE STREAM
                   </span>
@@ -1648,6 +1783,16 @@ export default function Detect() {
                   }}>
                     ● LISTENING ON POST /api/detect
                   </span>
+                  {/* Simulation mode badge — shown when no real webhook is connected */}
+                  {isIngressSimulating && ingressHost.includes('kopo-defense.internal') && (
+                    <span style={{
+                      fontSize: 10, padding: '2px 8px', borderRadius: 12,
+                      background: 'rgba(240, 165, 0, 0.15)', color: 'var(--accent-amber)',
+                      fontWeight: 700, border: '1px solid rgba(240, 165, 0, 0.35)'
+                    }}>
+                      🧪 SIMULATION MODE
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span>Target Service:</span>
@@ -1655,6 +1800,16 @@ export default function Detect() {
                   <span style={{ color: 'var(--text-muted)' }}>·</span>
                   <span>Direct Webhook & Reverse-Proxy Ingestion</span>
                 </div>
+                {isIngressSimulating && ingressHost.includes('kopo-defense.internal') && (
+                  <div style={{
+                    marginTop: 6, fontSize: 11, color: 'var(--accent-amber)',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: 'rgba(240,165,0,0.07)', border: '1px solid rgba(240,165,0,0.2)',
+                    borderRadius: 'var(--radius-sm)', padding: '5px 10px', maxWidth: 580
+                  }}>
+                    ⚠ Traffic is simulated from preset attack templates — not real. Click <strong>&nbsp;"Connect Website"&nbsp;</strong> to hook a live application.
+                  </div>
+                )}
               </div>
             </div>
 

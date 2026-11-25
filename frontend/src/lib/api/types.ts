@@ -211,3 +211,23 @@ export const DriftClusterSchema = z.object({
 })
 
 export type DriftCluster = z.infer<typeof DriftClusterSchema>
+
+// 8. Authentication Schemas
+export const AuthUserSchema = z.object({
+  id: z.number().or(z.string()),
+  name: z.string(),
+  email: z.string(),
+  role: z.string(),
+  created_at: z.string().optional(),
+  last_login_at: z.string().nullable().optional(),
+})
+
+export type AuthUser = z.infer<typeof AuthUserSchema>
+
+export const AuthResponseSchema = z.object({
+  user: AuthUserSchema,
+  token: z.string(),
+  portal: z.enum(['user', 'admin']),
+})
+
+export type AuthResponse = z.infer<typeof AuthResponseSchema>
